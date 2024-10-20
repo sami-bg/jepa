@@ -244,59 +244,9 @@ class VisionTransformer(nn.Module):
                 mode='bicubic')
             pos_embed = pos_embed.permute(0, 2, 3, 1).view(1, -1, dim)
             return pos_embed
-
-
-def vit_tiny(patch_size=16, **kwargs):
-    model = VisionTransformer(
-        patch_size=patch_size, embed_dim=192, depth=12, num_heads=3, mlp_ratio=4,
-        qkv_bias=True, norm_layer=partial(nn.LayerNorm, eps=1e-6), **kwargs)
-    return model
-
-
-def vit_small(patch_size=16, **kwargs):
-    model = VisionTransformer(
-        patch_size=patch_size, embed_dim=384, depth=12, num_heads=6, mlp_ratio=4,
-        qkv_bias=True, norm_layer=partial(nn.LayerNorm, eps=1e-6), **kwargs)
-    return model
-
-
-def vit_base(patch_size=16, **kwargs):
-    model = VisionTransformer(
-        patch_size=patch_size, embed_dim=768, depth=12, num_heads=12, mlp_ratio=4,
-        qkv_bias=True, norm_layer=partial(nn.LayerNorm, eps=1e-6), **kwargs)
-    return model
-
-
-def vit_large(patch_size=16, **kwargs):
-    model = VisionTransformer(
-        patch_size=patch_size, embed_dim=1024, depth=24, num_heads=16, mlp_ratio=4,
-        qkv_bias=True, norm_layer=partial(nn.LayerNorm, eps=1e-6), **kwargs)
-    return model
-
-
-def vit_huge(patch_size=16, **kwargs):
-    model = VisionTransformer(
-        patch_size=patch_size, embed_dim=1280, depth=32, num_heads=16, mlp_ratio=4,
-        qkv_bias=True, norm_layer=partial(nn.LayerNorm, eps=1e-6), **kwargs)
-    return model
-
-
-def vit_giant(patch_size=16, **kwargs):
-    model = VisionTransformer(
-        patch_size=patch_size, embed_dim=1408, depth=40, num_heads=16, mlp_ratio=48/11,
-        qkv_bias=True, norm_layer=partial(nn.LayerNorm, eps=1e-6), **kwargs)
-    return model
-
-
-def vit_gigantic(patch_size=14, **kwargs):
-    model = VisionTransformer(
-        patch_size=patch_size, embed_dim=1664, depth=48, num_heads=16, mpl_ratio=64/13,
-        qkv_bias=True, norm_layer=partial(nn.LayerNorm, eps=1e-6), **kwargs
-    )
-    return model
-
-
+        
 VIT_EMBED_DIMS = {
+    'vit_nano': 128,
     'vit_tiny': 192,
     'vit_small': 384,
     'vit_base': 768,
@@ -305,3 +255,106 @@ VIT_EMBED_DIMS = {
     'vit_giant': 1408,
     'vit_gigantic': 1664,
 }
+
+
+VIT_PATCH_SIZE = {
+    'vit_nano': 16,
+    'vit_tiny': 16,
+    'vit_small': 16,
+    'vit_base': 16,
+    'vit_large': 16,
+    'vit_huge': 16,
+    'vit_giant': 14,
+    'vit_gigantic': 14,
+}
+
+VIT_DEPTH = {
+    'vit_nano': 12,
+    'vit_tiny': 12,
+    'vit_small': 12,
+    'vit_base': 12,
+    'vit_large': 24,
+    'vit_huge': 32,
+    'vit_gigantic': 48,
+    'vit_giant': 40,
+}
+
+
+def vit_nano(patch_size=None, embed_dim=None, depth=None, **kwargs):
+    patch_size  = patch_size    or VIT_PATCH_SIZE['vit_nano']
+    embed_dim   = embed_dim     or VIT_EMBED_DIMS['vit_nano']
+    depth       = depth         or VIT_DEPTH     ['vit_nano']
+      
+    return VisionTransformer(
+        # NOTE embed_dim needs to be a multiple of num_heads. 
+        patch_size=patch_size, embed_dim=embed_dim, depth=depth, num_heads=4, mlp_ratio=4,
+        qkv_bias=True, norm_layer=partial(nn.LayerNorm, eps=1e-6), **kwargs)
+
+def vit_tiny(patch_size=None, embed_dim=None, depth=None, **kwargs):
+    patch_size  = patch_size    or VIT_PATCH_SIZE['vit_tiny']
+    embed_dim   = embed_dim     or VIT_EMBED_DIMS['vit_tiny']
+    depth       = depth         or VIT_DEPTH     ['vit_tiny']
+    
+    return VisionTransformer(
+        patch_size=patch_size, embed_dim=embed_dim, depth=depth, num_heads=3, mlp_ratio=4,
+        qkv_bias=True, norm_layer=partial(nn.LayerNorm, eps=1e-6), **kwargs)
+
+
+def vit_small(patch_size=None, embed_dim=None, depth=None, **kwargs):
+    patch_size  = patch_size    or VIT_PATCH_SIZE['vit_small']
+    embed_dim   = embed_dim     or VIT_EMBED_DIMS['vit_small']
+    depth       = depth         or VIT_DEPTH     ['vit_small']
+    
+    return VisionTransformer(
+        patch_size=patch_size, embed_dim=embed_dim, depth=depth, num_heads=6, mlp_ratio=4,
+        qkv_bias=True, norm_layer=partial(nn.LayerNorm, eps=1e-6), **kwargs)
+
+
+def vit_base(patch_size=None, embed_dim=None, depth=None, **kwargs):
+    patch_size  = patch_size    or VIT_PATCH_SIZE['vit_base']
+    embed_dim   = embed_dim     or VIT_EMBED_DIMS['vit_base']
+    depth       = depth         or VIT_DEPTH     ['vit_base']
+    
+    return VisionTransformer(
+        patch_size=patch_size, embed_dim=embed_dim, depth=depth, num_heads=12, mlp_ratio=4,
+        qkv_bias=True, norm_layer=partial(nn.LayerNorm, eps=1e-6), **kwargs)
+
+
+def vit_large(patch_size=None, embed_dim=None, depth=None, **kwargs):
+    patch_size  = patch_size    or VIT_PATCH_SIZE['vit_large']
+    embed_dim   = embed_dim     or VIT_EMBED_DIMS['vit_large']
+    depth       = depth         or VIT_DEPTH     ['vit_large']
+    
+    return VisionTransformer(
+        patch_size=patch_size, embed_dim=embed_dim, depth=depth, num_heads=16, mlp_ratio=4,
+        qkv_bias=True, norm_layer=partial(nn.LayerNorm, eps=1e-6), **kwargs)
+
+
+def vit_huge(patch_size=None, embed_dim=None, depth=None, **kwargs):
+    patch_size  = patch_size    or VIT_PATCH_SIZE['vit_huge']
+    embed_dim   = embed_dim     or VIT_EMBED_DIMS['vit_huge']
+    depth       = depth         or VIT_DEPTH     ['vit_huge']
+    
+    return VisionTransformer(
+        patch_size=patch_size, embed_dim=embed_dim, depth=depth, num_heads=16, mlp_ratio=4,
+        qkv_bias=True, norm_layer=partial(nn.LayerNorm, eps=1e-6), **kwargs)
+
+
+def vit_giant(patch_size=None, embed_dim=None, depth=None, **kwargs):
+    patch_size  = patch_size    or VIT_PATCH_SIZE['vit_giant']
+    embed_dim   = embed_dim     or VIT_EMBED_DIMS['vit_giant']
+    depth       = depth         or VIT_DEPTH     ['vit_giant']
+    
+    return VisionTransformer(
+        patch_size=patch_size, embed_dim=embed_dim, depth=depth, num_heads=16, mlp_ratio=48/11,
+        qkv_bias=True, norm_layer=partial(nn.LayerNorm, eps=1e-6), **kwargs)
+
+
+def vit_gigantic(patch_size=None, embed_dim=None, depth=None, **kwargs):
+    patch_size  = patch_size    or VIT_PATCH_SIZE['vit_gigantic']
+    embed_dim   = embed_dim     or VIT_EMBED_DIMS['vit_gigantic']
+    depth       = depth         or VIT_DEPTH     ['vit_gigantic']
+    
+    return VisionTransformer(
+        patch_size=patch_size, embed_dim=embed_dim, depth=depth, num_heads=16, mlp_ratio=64/13,
+        qkv_bias=True, norm_layer=partial(nn.LayerNorm, eps=1e-6), **kwargs)
