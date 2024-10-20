@@ -378,6 +378,7 @@ def main(args, resume_preempt=False):
 
         for itr in range(ipe):
             itr_start_time = time.time()
+            logger.info('Itr %d' % (itr + 1))
 
             try:
                 udata, masks_enc, masks_pred = next(loader)
