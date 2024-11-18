@@ -69,3 +69,19 @@ def repeat_interleave_batch(x, B, repeat):
         for i in range(N)
     ], dim=0)
     return x
+
+
+_RANKME_EPSILON = 1e-7
+
+def rankme(x: torch.Tensor):
+    global _RANKME_EPSILON
+    _u, s, _vh = torch.linalg.svd(
+        x, full_matrices=False
+    )
+
+    p = (s / torch.sum(s, axis=0)) + _RANKME_EPSILON
+
+    entropy = -torch.sum(p * torch.log(p))
+    rankme = torch.exp(entropy).item()
+
+    return rankme

@@ -38,7 +38,7 @@ from src.utils.logging import (
     grad_logger,
     adamw_logger,
     AverageMeter)
-from src.utils.tensors import repeat_interleave_batch
+from src.utils.tensors import repeat_interleave_batch, rankme
 
 from app.vjepa.utils import (
     load_checkpoint,
@@ -199,6 +199,7 @@ def main(args, resume_preempt=False):
         ('%.5f', 'reg-loss'),
         ('%.5f', 'enc-grad-norm'),
         ('%.5f', 'pred-grad-norm'),
+        ('%.5f', 'enc-rankme'),
         ('%d', 'gpu-time(ms)'),
         ('%d', 'wall-time(ms)'),
     )
@@ -370,6 +371,7 @@ def main(args, resume_preempt=False):
         loss_meter = AverageMeter()
         input_var_meter = AverageMeter()
         input_var_min_meter = AverageMeter()
+        rankme_meter = AverageMeter()
         jepa_loss_meter = AverageMeter()
         reg_loss_meter = AverageMeter()
         mask_meters = [AverageMeter() for _ in range(len(cfgs_mask))]
@@ -415,6 +417,7 @@ def main(args, resume_preempt=False):
             def train_step():
                 _new_lr = scheduler.step()
                 _new_wd = wd_scheduler.step()
+                rank  = None
                 # --
 
                 def forward_target(c):
@@ -480,7 +483,7 @@ def main(args, resume_preempt=False):
                 grad_stats_pred.global_norm = float(_pred_norm)
                 optimizer.zero_grad()
                 optim_stats = adamw_logger(optimizer)
-
+                rank = rankme(z, itr) 
                 # Step 3. momentum update of target encoder
                 m = next(momentum_scheduler)
                 with torch.no_grad():
@@ -495,15 +498,17 @@ def main(args, resume_preempt=False):
                     _new_wd,
                     grad_stats,
                     grad_stats_pred,
+                    rank,
                     optim_stats,
                 )
-            (loss, loss_jepa, loss_reg, _new_lr, _new_wd, grad_stats, grad_stats_pred, optim_stats,), gpu_etime_ms = gpu_timer(train_step)
+            (loss, loss_jepa, loss_reg, _new_lr, _new_wd, grad_stats, grad_stats_pred, rank, optim_stats,), gpu_etime_ms = gpu_timer(train_step)
             iter_elapsed_time_ms = (time.time() - itr_start_time) * 1000.
             loss_meter.update(loss)
             input_var = float(AllReduce.apply(clips.view(clips.shape[0], -1).var(dim=1).mean(dim=0)))
             input_var_min = float(AllReduce.apply(torch.min(clips.view(clips.shape[0], -1).var(dim=1))))
             input_var_meter.update(input_var)
             input_var_min_meter.update(input_var_min)
+            rankme_meter.update(rank)
             jepa_loss_meter.update(loss_jepa)
             reg_loss_meter.update(loss_reg)
             gpu_time_meter.update(gpu_etime_ms)
@@ -519,11 +524,12 @@ def main(args, resume_preempt=False):
                     loss_reg,
                     grad_stats.global_norm,
                     grad_stats_pred.global_norm,
+                    rank,
                     gpu_etime_ms,
                     iter_elapsed_time_ms)
                 if (itr % log_freq == 0) or np.isnan(loss) or np.isinf(loss):
                     logger.info(
-                        '[%d, %5d] loss: %.3f | p%.3f r%.3f | '
+                        '[%d, %5d] loss: %.3f | p%.3f r%.3f | rank %.5f | '
                         'input_var: %.3f %.3f | '
                         'masks: %s '
                         '[wd: %.2e] [lr: %.2e] '
@@ -536,6 +542,7 @@ def main(args, resume_preempt=False):
                            reg_loss_meter.avg,
                            input_var_meter.avg,
                            input_var_min_meter.avg,
+                           rankme_meter.avg,
                            '[' + ', '.join(['%.1f' % m.avg for m in mask_meters]) + ']',
                            _new_wd,
                            _new_lr,
