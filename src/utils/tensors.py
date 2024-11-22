@@ -6,10 +6,12 @@
 #
 
 import math
-
 import torch
-
+from functools import cache
 from logging import getLogger
+from collections import deque
+import torch.distributed as dist
+
 
 logger = getLogger()
 
@@ -71,17 +73,43 @@ def repeat_interleave_batch(x, B, repeat):
     return x
 
 
+_RANKME_ACCUMULATE = 32
 _RANKME_EPSILON = 1e-7
 
-def rankme(x: torch.Tensor):
-    global _RANKME_EPSILON
-    _u, s, _vh = torch.linalg.svd(
-        x, full_matrices=False
-    )
+class RankMe():
+    def __init__(self, limit: int = _RANKME_ACCUMULATE, epsilon: float=_RANKME_EPSILON):
+        self.limit = limit
+        self.bounded_queue = deque(maxlen=self.limit)
+        self.epsilon = epsilon
 
-    p = (s / torch.sum(s, axis=0)) + _RANKME_EPSILON
+    def enqueue(self, encoding: torch.Tensor) -> float:
+        with torch.no_grad():
+            world_size = dist.get_world_size()
+            batch_size, *_ = encoding.shape
 
-    entropy = -torch.sum(p * torch.log(p))
-    rankme = torch.exp(entropy).item()
+            flattened = encoding.reshape(batch_size, -1).detach()
+            gathered_encodings = [torch.zeros_like(flattened) for _ in range(world_size)]
+            dist.all_gather(gathered_encodings, flattened)
 
-    return rankme
+            full_batch = torch.cat(gathered_encodings, dim=0)
+            self.bounded_queue.append(full_batch)
+
+            if len(self.bounded_queue) > 0:
+                queue_batch = torch.cat(list(self.bounded_queue), dim=0)
+                score = self.calculate_rankme(queue_batch, self.epsilon)
+                # NOTE that all devices will have the same data at this point so no need for any allreduce/allgather
+                return score
+    
+    @classmethod
+    def calculate_rankme(cls, x: torch.Tensor, epsilon: float) -> float:
+        with torch.no_grad():
+            _u, s, _vh = torch.linalg.svd(x, full_matrices=False)
+            p = (s / torch.sum(s, axis=0)) + epsilon
+            entropy = -torch.sum(p * torch.log(p))
+            return torch.exp(entropy).item()
+
+
+@cache
+def rankme() -> RankMe:
+    logger.info(f'Initialized distributed RankMe.')
+    return RankMe(limit=_RANKME_ACCUMULATE, epsilon=_RANKME_EPSILON)

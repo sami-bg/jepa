@@ -483,7 +483,7 @@ def main(args, resume_preempt=False):
                 grad_stats_pred.global_norm = float(_pred_norm)
                 optimizer.zero_grad()
                 optim_stats = adamw_logger(optimizer)
-                rank = rankme(z, itr) 
+                rankme_score = rankme().enqueue(z)
                 # Step 3. momentum update of target encoder
                 m = next(momentum_scheduler)
                 with torch.no_grad():
@@ -498,10 +498,10 @@ def main(args, resume_preempt=False):
                     _new_wd,
                     grad_stats,
                     grad_stats_pred,
-                    rank,
+                    rankme_score,
                     optim_stats,
                 )
-            (loss, loss_jepa, loss_reg, _new_lr, _new_wd, grad_stats, grad_stats_pred, rank, optim_stats,), gpu_etime_ms = gpu_timer(train_step)
+            (loss, loss_jepa, loss_reg, _new_lr, _new_wd, grad_stats, grad_stats_pred, rankme_score, optim_stats,), gpu_etime_ms = gpu_timer(train_step)
             iter_elapsed_time_ms = (time.time() - itr_start_time) * 1000.
             loss_meter.update(loss)
             input_var = float(AllReduce.apply(clips.view(clips.shape[0], -1).var(dim=1).mean(dim=0)))
@@ -524,12 +524,12 @@ def main(args, resume_preempt=False):
                     loss_reg,
                     grad_stats.global_norm,
                     grad_stats_pred.global_norm,
-                    rank,
+                    rankme_score,
                     gpu_etime_ms,
                     iter_elapsed_time_ms)
                 if (itr % log_freq == 0) or np.isnan(loss) or np.isinf(loss):
                     logger.info(
-                        '[%d, %5d] loss: %.3f | p%.3f r%.3f | rank %.5f | '
+                        '[%d, %5d] loss: %.3f | p%.3f r%.3f | rankme %.5f | '
                         'input_var: %.3f %.3f | '
                         'masks: %s '
                         '[wd: %.2e] [lr: %.2e] '
@@ -542,7 +542,7 @@ def main(args, resume_preempt=False):
                            reg_loss_meter.avg,
                            input_var_meter.avg,
                            input_var_min_meter.avg,
-                           rankme_meter.avg,
+                           rankme_score,
                            '[' + ', '.join(['%.1f' % m.avg for m in mask_meters]) + ']',
                            _new_wd,
                            _new_lr,
