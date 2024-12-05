@@ -95,7 +95,8 @@ class RankMe():
 
             if len(self.bounded_queue) > 0:
                 queue_batch = torch.cat(list(self.bounded_queue), dim=1)
-                score = self.calculate_rankme(queue_batch, self.epsilon)
+                flat_batch = queue_batch.reshape(batch_size, -1)
+                score = self.calculate_rankme(flat_batch, self.epsilon)
                 # NOTE that all devices will have the same data at this point so no need for any allreduce/allgather
                 return score
     
