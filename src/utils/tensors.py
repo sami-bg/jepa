@@ -87,15 +87,14 @@ class RankMe():
             world_size = dist.get_world_size()
             batch_size, *_ = encoding.shape
 
-            flattened = encoding.reshape(batch_size, -1).detach()
-            gathered_encodings = [torch.zeros_like(flattened) for _ in range(world_size)]
-            dist.all_gather(gathered_encodings, flattened)
+            gathered_encodings = [torch.zeros_like(encoding) for _ in range(world_size)]
+            dist.all_gather(gathered_encodings, encoding)
 
             full_batch = torch.cat(gathered_encodings, dim=0)
             self.bounded_queue.append(full_batch)
 
             if len(self.bounded_queue) > 0:
-                queue_batch = torch.cat(list(self.bounded_queue), dim=0)
+                queue_batch = torch.cat(list(self.bounded_queue), dim=1)
                 score = self.calculate_rankme(queue_batch, self.epsilon)
                 # NOTE that all devices will have the same data at this point so no need for any allreduce/allgather
                 return score
