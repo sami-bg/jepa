@@ -264,8 +264,13 @@ class VideoDataset(torch.utils.data.Dataset):
 
             clip_indices.append(indices)
             all_indices.extend(list(indices))
+        buffer = vr.get_batch(all_indices)
+        
+        if isinstance(buffer, torch.Tensor):
+            buffer = buffer.numpy()
+        else:
+            buffer = buffer.asnumpy()
 
-        buffer = vr.get_batch(all_indices).asnumpy()
         return buffer, clip_indices
 
     def __len__(self):
