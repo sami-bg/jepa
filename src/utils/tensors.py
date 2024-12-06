@@ -73,7 +73,7 @@ def repeat_interleave_batch(x, B, repeat):
     return x
 
 
-_RANKME_ACCUMULATE = 4
+_RANKME_ACCUMULATE = 32
 _RANKME_EPSILON = 1e-7
 
 class RankMe():
@@ -87,16 +87,16 @@ class RankMe():
             world_size = dist.get_world_size()
             batch_size, *_ = encoding.shape
 
-            gathered_encodings = [torch.zeros_like(encoding) for _ in range(world_size)]
-            dist.all_gather(gathered_encodings, encoding)
+            flattened = encoding.reshape(batch_size, -1).detach()
+            gathered_encodings = [torch.zeros_like(flattened) for _ in range(world_size)]
+            dist.all_gather(gathered_encodings, flattened)
 
             full_batch = torch.cat(gathered_encodings, dim=0)
             self.bounded_queue.append(full_batch)
 
             if len(self.bounded_queue) > 0:
-                queue_batch = torch.cat(list(self.bounded_queue), dim=1)
-                flat_batch = queue_batch.reshape(batch_size, -1)
-                score = self.calculate_rankme(flat_batch, self.epsilon)
+                queue_batch = torch.cat(list(self.bounded_queue), dim=0)
+                score = self.calculate_rankme(queue_batch, self.epsilon)
                 # NOTE that all devices will have the same data at this point so no need for any allreduce/allgather
                 return score
     

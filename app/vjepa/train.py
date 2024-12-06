@@ -485,9 +485,8 @@ def main(args, resume_preempt=False):
                 optim_stats = adamw_logger(optimizer)
                 # calculate rankme by concatenating list of predicted mask tokens
                 # NOTE No rankme for now 
-                rankme_score = 0.
-                # z_cat = torch.cat([zi for zi in z], dim=1)
-                # rankme_score = rankme().enqueue(z_cat)
+                # rankme_score = 0.
+                rankme_score = sum((rankme().enqueue(zi) for zi in z)) / len(z)
                 # Step 3. momentum update of target encoder
                 m = next(momentum_scheduler)
                 with torch.no_grad():
