@@ -73,7 +73,7 @@ def repeat_interleave_batch(x, B, repeat):
     return x
 
 
-_RANKME_ACCUMULATE = 16
+_RANKME_ACCUMULATE = 4
 _RANKME_EPSILON = 1e-7
 
 class RankMe():
