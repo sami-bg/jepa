@@ -95,9 +95,10 @@ class RankMe():
             self.bounded_queue.append(full_batch)
 
             if len(self.bounded_queue) > 0:
-                avg_score = sum((self.calculate_rankme(x) for x in self.bounded_queue)) / len(self.bounded_queue)
+                avg_score = sum((self.calculate_rankme(x, self.epsilon) for x in self.bounded_queue)) / len(self.bounded_queue)
                 return avg_score
-    
+
+
     @classmethod
     def calculate_rankme(cls, x: torch.Tensor, epsilon: float) -> float:
         with torch.no_grad():
