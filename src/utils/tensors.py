@@ -95,10 +95,13 @@ class RankMe():
             self.bounded_queue.append(full_batch)
 
             if len(self.bounded_queue) > 0:
-                queue_batch = torch.cat(list(self.bounded_queue), dim=0)
-                score = self.calculate_rankme(queue_batch, self.epsilon)
+                avg_score = 0.
+                for x in self.bounded_queue: 
+                    avg_score += self.calculate_rankme(x, self.epsilon)
+
+                avg_score /= len(self.bounded_queue)
                 # NOTE that all devices will have the same data at this point so no need for any allreduce/allgather
-                return score
+                return avg_score
     
     @classmethod
     def calculate_rankme(cls, x: torch.Tensor, epsilon: float) -> float:
