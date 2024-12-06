@@ -486,7 +486,7 @@ def main(args, resume_preempt=False):
                 # calculate rankme by concatenating list of predicted mask tokens
                 # NOTE No rankme for now 
                 # rankme_score = 0.
-                rankme_score = sum((rankme().enqueue(zi) for zi in z)) / len(z)
+                rankme_score = [rankme().enqueue(zi) for zi in z][-1]
                 # Step 3. momentum update of target encoder
                 m = next(momentum_scheduler)
                 with torch.no_grad():

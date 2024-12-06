@@ -95,12 +95,7 @@ class RankMe():
             self.bounded_queue.append(full_batch)
 
             if len(self.bounded_queue) > 0:
-                avg_score = 0.
-                for x in self.bounded_queue: 
-                    avg_score += self.calculate_rankme(x, self.epsilon)
-
-                avg_score /= len(self.bounded_queue)
-                # NOTE that all devices will have the same data at this point so no need for any allreduce/allgather
+                avg_score = sum((self.calculate_rankme(x) for x in self.bounded_queue)) / len(self.bounded_queue)
                 return avg_score
     
     @classmethod
