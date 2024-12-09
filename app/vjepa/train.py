@@ -276,7 +276,11 @@ def main(args, resume_preempt=False):
     if ipe is None:
         ipe = _dlen
     logger.info(f'iterations per epoch/dataest length: {ipe}/{_dlen}')
-
+    
+    # NOTE in case ipe is 300 but dlen is 31, choose 31. 
+    ipe = min(ipe, _dlen)
+    logger.info(f'final ipe/_dlen: {ipe}/{_dlen}')
+    
     # -- init optimizer and scheduler
     optimizer, scaler, scheduler, wd_scheduler = init_opt(
         encoder=encoder,
