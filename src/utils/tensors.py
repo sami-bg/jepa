@@ -73,7 +73,7 @@ def repeat_interleave_batch(x, B, repeat):
     return x
 
 
-_RANKME_ACCUMULATE = 32
+_RANKME_ACCUMULATE = 4
 _RANKME_EPSILON = 1e-7
 
 class RankMe():
@@ -84,6 +84,9 @@ class RankMe():
 
     def enqueue(self, encoding: torch.Tensor) -> float:
         with torch.no_grad():
+            if encoding.dtype != torch.float32:
+                encoding = encoding.to(torch.float32)
+
             world_size = dist.get_world_size()
             batch_size, *_ = encoding.shape
 
