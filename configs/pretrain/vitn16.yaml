@@ -1,6 +1,6 @@
 app: vjepa
-nodes: 16
-tasks_per_node: 8
+nodes: 1
+tasks_per_node: 1
 data:
   dataset_type: MovingDot
   noise: 0.0
@@ -18,7 +18,7 @@ data:
   crop_size: 224
   patch_size: 16
   pin_mem: true
-  num_workers: 12
+  num_workers: 2
   filter_short_videos: false
   clip_duration: null
 data_aug:
@@ -70,9 +70,9 @@ meta:
   use_sdpa: true
   dtype: bfloat16
 model:
-  model_name: vit_huge
+  model_name: vit_nano
   pred_depth: 12
-  pred_embed_dim: 384
+  pred_embed_dim: 96
   uniform_power: true
   use_mask_tokens: true
   zero_init_mask_tokens: true

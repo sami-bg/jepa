@@ -268,7 +268,10 @@ def main(args, resume_preempt=False):
          world_size=world_size,
          pin_mem=pin_mem,
          rank=rank,
-         log_dir=folder if log_resource_util_data else None)
+         log_dir=folder if log_resource_util_data else None,
+         # NOTE: only for distractor of moving dot dataset
+         noise=cfgs_data.get('noise', 0.), static_noise=cfgs_data.get('static_noise', 0.)
+        )
     try:
         _dlen = len(unsupervised_loader)
     except Exception:  # Different interface for webdataset

@@ -43,6 +43,7 @@ def init_data(
     repeat_wds=False,
     ipe=300,
     log_dir=None,
+    noise=0.0, static_noise=0.0,
 ):
 
     if (data.lower() == 'imagenet') \
@@ -87,5 +88,18 @@ def init_data(
             rank=rank,
             drop_last=drop_last,
             log_dir=log_dir)
-
+    elif data.lower() == 'movingdot':
+        from src.datasets.moving_dot_dataset import make_movingdot_dataset
+        dataset, data_loader, dist_sampler = make_movingdot_dataset(
+            batch_size=batch_size,
+            n_steps=clip_len,  # Reuse clip_len param for sequence length
+            noise=noise,  # These could be added as new params to init_data
+            static_noise=static_noise,
+            structured_noise=False,
+            transform=transform,
+            num_workers=num_workers, 
+            world_size=world_size,
+            rank=rank,
+            drop_last=drop_last
+        )
     return (data_loader, dist_sampler)

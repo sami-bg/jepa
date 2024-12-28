@@ -155,18 +155,18 @@ class VideoDataset(torch.utils.data.Dataset):
 
     def __getitem__(self, index):
         sample = self.samples[index]
+        # Label/annotations for video
+        label = self.labels[index]
 
         # Keep trying to load videos until you find a valid sample
         loaded_video = False
         while not loaded_video:
-            buffer, clip_indices = self.loadvideo_decord(sample)  # [T H W 3]
+            buffer, clip_indices = self.loadvideo_decord(sample, label)  # [T H W 3]
             loaded_video = len(buffer) > 0
             if not loaded_video:
                 index = np.random.randint(self.__len__())
                 sample = self.samples[index]
 
-        # Label/annotations for video
-        label = self.labels[index]
 
         def split_into_clips(video):
             """ Split video into a list of clips """
@@ -183,7 +183,7 @@ class VideoDataset(torch.utils.data.Dataset):
 
         return buffer, label, clip_indices
 
-    def loadvideo_decord(self, sample):
+    def loadvideo_decord(self, sample, label):
         """ Load video content using Decord """
 
         fname = sample
@@ -270,3 +270,10 @@ class VideoDataset(torch.utils.data.Dataset):
 
     def __len__(self):
         return len(self.samples)
+
+
+if __name__ == "__main__":
+    ds = VideoDataset(data_paths=[
+        '/home/sboughanem/ssl/cs2952x/jepa/libero_datalist.csv'
+    ])
+    ds[0]
