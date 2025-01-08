@@ -201,6 +201,7 @@ class VisionTransformer(nn.Module):
         if self.is_video:
 
             # If pos_embed already corret size, just return
+            # NOTE We are missing channel and batch 
             _, _, T, H, W = x.shape
             if H == self.input_size and W == self.input_size and T == self.num_frames:
                 return pos_embed
@@ -358,3 +359,9 @@ def vit_gigantic(patch_size=None, embed_dim=None, depth=None, **kwargs):
     return VisionTransformer(
         patch_size=patch_size, embed_dim=embed_dim, depth=depth, num_heads=16, mlp_ratio=64/13,
         qkv_bias=True, norm_layer=partial(nn.LayerNorm, eps=1e-6), **kwargs)
+
+
+if __name__ == '__main__':
+    s = vit_small()
+    b = vit_base()
+    

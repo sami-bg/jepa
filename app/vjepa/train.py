@@ -19,6 +19,7 @@ except Exception:
 
 import copy
 import time
+import random
 import numpy as np
 
 import torch
@@ -129,11 +130,16 @@ def main(args, resume_preempt=False):
     motion_shift = cfgs_data_aug.get('motion_shift', False)
     reprob = cfgs_data_aug.get('reprob', 0.)
     use_aa = cfgs_data_aug.get('auto_augment', False)
+    # NOTE SAMI
+    labelwise_color_filter = cfgs_data_aug.get('labelwise_color_filter', {})
+    labelwise_color_filter_alpha = labelwise_color_filter.get('alpha', 0.)
 
     # -- LOSS
     cfgs_loss = args.get('loss')
     loss_exp = cfgs_loss.get('loss_exp')
     reg_coeff = cfgs_loss.get('reg_coeff')
+    temp_coeff = cfgs_loss.get('temp_coeff', 0.)
+    temp_negatives = cfgs_loss.get('temp_negatives', 8)
 
     # -- OPTIMIZATION
     cfgs_opt = args.get('optimization')
@@ -197,6 +203,7 @@ def main(args, resume_preempt=False):
         ('%.5f', 'loss'),
         ('%.5f', 'loss-jepa'),
         ('%.5f', 'reg-loss'),
+        ('%.5f', 'temp-loss'),
         ('%.5f', 'enc-grad-norm'),
         ('%.5f', 'pred-grad-norm'),
         ('%.5f', 'enc-rankme'),
@@ -246,7 +253,9 @@ def main(args, resume_preempt=False):
         reprob=reprob,
         auto_augment=use_aa,
         motion_shift=motion_shift,
-        crop_size=crop_size)
+        crop_size=crop_size,
+        labelwise_color_filter=labelwise_color_filter_alpha,
+        split="train")
 
     # -- init data-loaders/samplers
     (unsupervised_loader,
@@ -376,6 +385,7 @@ def main(args, resume_preempt=False):
         input_var_min_meter = AverageMeter()
         jepa_loss_meter = AverageMeter()
         reg_loss_meter = AverageMeter()
+        temp_loss_meter = AverageMeter()
         mask_meters = [AverageMeter() for _ in range(len(cfgs_mask))]
         gpu_time_meter = AverageMeter()
         wall_time_meter = AverageMeter()
@@ -453,16 +463,133 @@ def main(args, resume_preempt=False):
 
                 def reg_fn(z):
                     return sum([torch.sqrt(zi.var(dim=1) + 0.0001) for zi in z]) / len(z)
+                
+                def temp_loss_fn(z_list, num_anchors=10, num_negatives=8):
+                    """
+                    Temporal contrast with both anchor *and* negative sampling to reduce cost.
+                    - For each sequence (b),
+                        we pick 'num_anchors' random time steps t in [0..T-2].
+                        positive = t+1
+                        we sample 'num_negatives' random frames from [0..T), excluding t & t+1
+                    - Then we do a single matmul for anchor & candidate vectors to get sims.
+
+                    z_list: list of Tensors, each [B, T, D]
+                    num_anchors: how many anchors to sample per sequence
+                    num_negatives: how many negatives to sample per anchor
+
+                    Returns:
+                        A scalar loss (averaged).
+                    """
+                    device = z_list[0].device  # assume all on same device (hopefully CUDA)
+                    total_loss = 0.0
+                    total_count = 0
+
+                    for z in z_list:
+                        B, T, D = z.shape
+                        # (1) normalize or not
+                        z_norm = F.normalize(z, dim=-1)  # shape [B, T, D]
+                        # Flatten => [B*T, D]
+                        z_flat = z_norm.reshape(B*T, D)
+
+                        # We'll accumulate losses in a vector (for possible vectorization)
+                        loss_vals = []
+
+                        for b in range(B):
+                            # For each sequence in batch
+                            seq_start = b * T
+                            seq_end   = b * T + T
+
+                            # sample 'num_anchors' random anchors in [0..T-2]
+                            # If T < 2 => skip
+                            if T < 2:
+                                continue
+                            possible_anchors = list(range(0, T-1))  # t in [0..T-2]
+                            if num_anchors < len(possible_anchors):
+                                anchor_times = random.sample(possible_anchors, k=num_anchors)
+                            else:
+                                anchor_times = possible_anchors
+
+                            anchor_indices = [seq_start + t for t in anchor_times]
+                            # positive indices => anchor_times+1
+                            pos_indices = [seq_start + (t+1) for t in anchor_times]
+
+                            # We also gather negatives for each anchor
+                            # We'll unify them in a set to reduce repeated lookups
+                            all_neg_indices = set()
+                            for t in anchor_times:
+                                # Exclude t, t+1
+                                cand = list(range(seq_start, seq_end))
+                                cand.remove(seq_start + t)
+                                cand.remove(seq_start + t + 1)
+                                # sample
+                                if len(cand) > num_negatives:
+                                    negs = random.sample(cand, k=num_negatives)
+                                else:
+                                    negs = cand
+                                all_neg_indices.update(negs)
+
+                            # Convert to list
+                            all_neg_indices = list(all_neg_indices)
+
+                            # Build a big tensor of shape [A + len(all_neg_indices), D]
+                            # A = number of anchors => len(anchor_indices)
+                            # We'll do a single matmul to get dot products
+                            # anchor_vectors => shape [A, D]
+                            anchor_vectors = z_flat[anchor_indices]  # [num_anchors, D]
+                            pos_vectors    = z_flat[pos_indices]      # [num_anchors, D]
+                            neg_vectors    = z_flat[all_neg_indices]  # [num_negativesUnique, D]
+
+                            # Dot for anchor <-> pos
+                            # => shape [num_anchors]
+                            pos_sims = torch.sum(anchor_vectors * pos_vectors, dim=-1)
+
+                            # Dot for anchor <-> neg
+                            # We'll do [num_anchors, D] x [D, num_negativesUnique] => [num_anchors, num_negativesUnique]
+                            #  by matmul if we transpose neg_vectors
+                            anchor_mat = anchor_vectors  # shape [A, D]
+                            neg_mat = neg_vectors.transpose(0,1)  # shape [D, Nneg]
+                            neg_sims_mat = anchor_mat @ neg_mat    # shape [A, Nneg]
+
+                            # Now each row i in neg_sims_mat is the dot products of anchor i with all unique negatives
+                            # But each anchor i might have a different set of actual negatives, we do partial indexing. 
+                            # For simplicity: we'll treat them all as possible negatives => big softmax
+                            # (If we wanted to do EXACT per-anchor negative set, we'd do more indexing logic.)
+
+                            # We'll do a loop over anchors, but it's only 'num_anchors' (small).
+                            for i in range(len(anchor_indices)):
+                                # anchor i's positive sim
+                                pos_sim = pos_sims[i]
+
+                                # anchor i's negative sims => shape [NnegUnique]
+                                # The exact negative set might differ, but let's approximate by using them all
+                                neg_sims = neg_sims_mat[i]  # shape [NnegUnique]
+
+                                # Combine => shape [1 + NnegUnique]
+                                combined = torch.cat([pos_sim.unsqueeze(0), neg_sims], dim=0)
+                                log_probs = F.log_softmax(combined, dim=0)
+
+                                # InfoNCE => -log prob of the positive
+                                loss_vals.append(-log_probs[0])
+
+                        if len(loss_vals) > 0:
+                            batch_loss = torch.stack(loss_vals).mean()
+                            total_loss += batch_loss.item() * len(loss_vals)
+                            total_count += len(loss_vals)
+
+                    return (total_loss / total_count) if total_count > 0 else 0.0
+
+
 
                 # Step 1. Forward
-                loss_jepa, loss_reg = 0., 0.
+                loss_jepa, loss_reg, loss_temp = 0., 0., 0.
                 with torch.cuda.amp.autocast(dtype=dtype, enabled=mixed_precision):
                     h = forward_target(clips)
                     z = forward_context(clips, h)
                     loss_jepa = loss_fn(z, h)  # jepa prediction loss
                     pstd_z = reg_fn(z)  # predictor variance across patches
+                    loss_temp = temp_loss_fn(z, temp_negatives)
                     loss_reg += torch.mean(F.relu(1.-pstd_z))
-                loss = loss_jepa + reg_coeff * loss_reg
+                loss = loss_jepa + (reg_coeff * loss_reg) + (temp_coeff * loss_temp)
 
                 # Step 2. Backward & step
                 _enc_norm, _pred_norm = 0., 0.
@@ -485,7 +612,8 @@ def main(args, resume_preempt=False):
                 grad_stats_pred.global_norm = float(_pred_norm)
                 optimizer.zero_grad()
                 optim_stats = adamw_logger(optimizer)
-                rankme_score = rankme().enqueue(z)
+                # rankme_score = rankme().enqueue(z)
+                rankme_score = 0.
                 # Step 3. momentum update of target encoder
                 m = next(momentum_scheduler)
                 with torch.no_grad():
@@ -496,6 +624,7 @@ def main(args, resume_preempt=False):
                     float(loss),
                     float(loss_jepa),
                     float(loss_reg),
+                    float(loss_temp),
                     _new_lr,
                     _new_wd,
                     grad_stats,
@@ -503,7 +632,7 @@ def main(args, resume_preempt=False):
                     rankme_score,
                     optim_stats,
                 )
-            (loss, loss_jepa, loss_reg, _new_lr, _new_wd, grad_stats, grad_stats_pred, rankme_score, optim_stats,), gpu_etime_ms = gpu_timer(train_step)
+            (loss, loss_jepa, loss_reg, loss_temp, _new_lr, _new_wd, grad_stats, grad_stats_pred, rankme_score, optim_stats,), gpu_etime_ms = gpu_timer(train_step)
             iter_elapsed_time_ms = (time.time() - itr_start_time) * 1000.
             loss_meter.update(loss)
             input_var = float(AllReduce.apply(clips.view(clips.shape[0], -1).var(dim=1).mean(dim=0)))
@@ -512,6 +641,7 @@ def main(args, resume_preempt=False):
             input_var_min_meter.update(input_var_min)
             jepa_loss_meter.update(loss_jepa)
             reg_loss_meter.update(loss_reg)
+            temp_loss_meter.update(loss_temp)
             gpu_time_meter.update(gpu_etime_ms)
             wall_time_meter.update(iter_elapsed_time_ms)
 
@@ -523,6 +653,7 @@ def main(args, resume_preempt=False):
                     loss,
                     loss_jepa,
                     loss_reg,
+                    loss_temp,
                     grad_stats.global_norm,
                     grad_stats_pred.global_norm,
                     rankme_score,
@@ -530,7 +661,7 @@ def main(args, resume_preempt=False):
                     iter_elapsed_time_ms)
                 if (itr % log_freq == 0) or np.isnan(loss) or np.isinf(loss):
                     logger.info(
-                        '[%d, %5d] loss: %.3f | p%.3f r%.3f | rankme %.5f | '
+                        '[%d, %5d] loss: %.3f | p%.3f r%.3f t%.3f | rankme %.5f | '
                         'input_var: %.3f %.3f | '
                         'masks: %s '
                         '[wd: %.2e] [lr: %.2e] '
@@ -541,6 +672,7 @@ def main(args, resume_preempt=False):
                            loss_meter.avg,
                            jepa_loss_meter.avg,
                            reg_loss_meter.avg,
+                           temp_loss_meter.avg,
                            input_var_meter.avg,
                            input_var_min_meter.avg,
                            rankme_score,

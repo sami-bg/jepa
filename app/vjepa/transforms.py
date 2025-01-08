@@ -21,7 +21,9 @@ def make_transforms(
     motion_shift=False,
     crop_size=224,
     normalize=((0.485, 0.456, 0.406),
-               (0.229, 0.224, 0.225))
+               (0.229, 0.224, 0.225)),
+    labelwise_color_filter=0.,
+    split="train"
 ):
 
     _frames_augmentation = VideoTransform(
@@ -33,6 +35,8 @@ def make_transforms(
         motion_shift=motion_shift,
         crop_size=crop_size,
         normalize=normalize,
+        labelwise_color_filter=labelwise_color_filter,
+        split=split
     )
     return _frames_augmentation
 
@@ -44,12 +48,14 @@ class VideoTransform(object):
         random_horizontal_flip=True,
         random_resize_aspect_ratio=(3/4, 4/3),
         random_resize_scale=(0.3, 1.0),
+        labelwise_color_filter=0.,
         reprob=0.0,
         auto_augment=False,
         motion_shift=False,
         crop_size=224,
         normalize=((0.485, 0.456, 0.406),
-                   (0.229, 0.224, 0.225))
+                   (0.229, 0.224, 0.225)),
+        split="train"
     ):
 
         self.random_horizontal_flip = random_horizontal_flip
@@ -64,7 +70,13 @@ class VideoTransform(object):
             # Without auto-augment, PIL and tensor conversions simply scale uint8 space by 255.
             self.mean *= 255.
             self.std *= 255.
-
+        
+        self.labelwise_color_filter = video_transforms.create_layerwise_color_filter(
+            split=split,
+            alpha = (alpha := labelwise_color_filter),  # Default case of alpha=0 means no augmentation
+            normalize_fn=_tensor_normalize_inplace
+        )
+        
         self.autoaug_transform = video_transforms.create_random_augment(
             input_size=(crop_size, crop_size),
             auto_augment='rand-m7-n4-mstd0.5-inc1',
@@ -83,7 +95,7 @@ class VideoTransform(object):
             device='cpu',
         )
 
-    def __call__(self, buffer):
+    def __call__(self, buffer, label=None):
 
         if self.auto_augment:
             buffer = [transforms.ToPILImage()(frame) for frame in buffer]
@@ -111,6 +123,8 @@ class VideoTransform(object):
             buffer = buffer.permute(1, 0, 2, 3)
             buffer = self.erase_transform(buffer)
             buffer = buffer.permute(1, 0, 2, 3)
+
+        buffer = self.labelwise_color_filter(buffer, label)
 
         return buffer
 

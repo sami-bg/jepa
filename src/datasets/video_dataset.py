@@ -179,7 +179,10 @@ class VideoDataset(torch.utils.data.Dataset):
             buffer = self.shared_transform(buffer)
         buffer = split_into_clips(buffer)
         if self.transform is not None:
-            buffer = [self.transform(clip) for clip in buffer]
+            buffer = [
+                self.transform(clip, label)
+                for clip in buffer
+            ]
 
         return buffer, label, clip_indices
 
@@ -264,8 +267,14 @@ class VideoDataset(torch.utils.data.Dataset):
 
             clip_indices.append(indices)
             all_indices.extend(list(indices))
-
-        buffer = vr.get_batch(all_indices).asnumpy()
+        
+        buffer = vr.get_batch(all_indices)
+        
+        if isinstance(buffer, torch.Tensor):
+            buffer = buffer.numpy()
+        else:
+            buffer = buffer.asnumpy()
+            
         return buffer, clip_indices
 
     def __len__(self):

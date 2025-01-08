@@ -84,6 +84,11 @@ class RankMe():
 
     def enqueue(self, encoding: torch.Tensor) -> float:
         with torch.no_grad():
+            if isinstance(encoding, list):
+                # assume a list is of views, where each view is batch_size on the 0th dim
+                # (as per JointEmbeddng)
+                return [self.enqueue(batch) for batch in encoding][-1]
+
             world_size = dist.get_world_size()
             batch_size, *_ = encoding.shape
 
@@ -103,6 +108,8 @@ class RankMe():
     @classmethod
     def calculate_rankme(cls, x: torch.Tensor, epsilon: float) -> float:
         with torch.no_grad():
+            if x.dtype != torch.float32:
+                x = x.to(torch.float32)
             _u, s, _vh = torch.linalg.svd(x, full_matrices=False)
             p = (s / torch.sum(s, axis=0)) + epsilon
             entropy = -torch.sum(p * torch.log(p))

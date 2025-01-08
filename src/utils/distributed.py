@@ -16,7 +16,7 @@ logger = getLogger()
 
 
 def init_distributed(port=37123, rank_and_world_size=(None, None)):
-
+    
     if dist.is_available() and dist.is_initialized():
         return dist.get_world_size(), dist.get_rank()
 

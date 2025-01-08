@@ -1,8 +1,10 @@
 import torch
 from functools import partial
+from einops import rearrange
 import torch.utils.data.distributed
 
 from src.datasets.utils.moving_dot.single import ContinuousMotionDataset, Sample
+
 
 def make_movingdot_dataset(
     batch_size,
@@ -16,6 +18,7 @@ def make_movingdot_dataset(
     rank=0,
     drop_last=True,
     pin_mem=True,
+    collator=None
 ):
     dataset = ContinuousMotionDataset(
         size=1_000_000,  # Pre-training size from paper
@@ -24,6 +27,7 @@ def make_movingdot_dataset(
         noise=noise,
         static_noise=static_noise,
         structured_noise=structured_noise,
+        img_size=224,
         device=torch.device("cpu"),  # Move to GPU in transform
     )
 
@@ -34,6 +38,11 @@ def make_movingdot_dataset(
         shuffle=True
     )
 
+    if collator:
+        collate_fn = lambda x: combined_collate_fn(x, collator, n_steps)
+    else:
+        collate_fn = partial(dot_collate_fn, frames_per_clip=n_steps)
+
     data_loader = torch.utils.data.DataLoader(
         dataset,
         batch_size=1, # NOTE dataset does batching itself
@@ -41,7 +50,7 @@ def make_movingdot_dataset(
         num_workers=num_workers,
         drop_last=drop_last,
         pin_memory=pin_mem,
-        collate_fn=partial(dot_collate_fn, frames_per_clip=n_steps)
+        collate_fn=collate_fn
     )
 
     return dataset, data_loader, dist_sampler
@@ -55,6 +64,7 @@ def dot_collate_fn(samples: list[Sample] , frames_per_clip: int):
     sample = samples[0]  # Get single Sample since batch_size=1
     states = sample.states  # [batch_size, T, 1, 28, 28]
     actions = sample.actions
+    locations = sample.locations
     num_clips = states.shape[1] // frames_per_clip
 
     # First collect ALL indices
@@ -63,9 +73,42 @@ def dot_collate_fn(samples: list[Sample] , frames_per_clip: int):
         indices = torch.arange(i*frames_per_clip, (i+1)*frames_per_clip)
         clip_indices.append(indices)
 
-    # Get single buffer of all frames
+    # un-grayscale 
+    states = states.repeat(1, 1, 3, 1, 1)
+    
+    # Reorder dimensions to [batch_size, channels, frames, height, width]
+    # Return in format expected by V-JEPA training loop
+    # ie udata, maskenc, maskpred
+    # udata[0] = [.]
+    # udata[0][0] = 6,3,16,384,384
+    states = rearrange(states, "b f c h w -> b c f h w")
+    
+    return states, actions.squeeze(2), locations.squeeze(2), clip_indices
 
-    return (states.squeeze(2) * 255).int().numpy(), actions.squeeze(2), clip_indices
+def combined_collate_fn(samples, mask_collator, frames_per_clip):
+    """
+    Combines dot dataset collation with V-JEPA mask generation
+    
+    Args:
+        samples: List of Sample objects from ContinuousMotionDataset
+        mask_collator: V-JEPA's MaskCollator instance
+        frames_per_clip: Number of frames per clip
+    """
+    # First do dot dataset collation 
+    states, actions, labels, clip_indices = dot_collate_fn(samples, frames_per_clip)
+    
+    # Create batch tuple as expected by MaskCollator
+    # MaskCollator expects a batch that can be processed by default_collate
+    batch = [(state,) for state in states]  # Make each state a tuple
+    
+    # Get masks using V-JEPA's collator
+    # This returns (collated_batch, collated_masks_enc, collated_masks_pred)
+    _, masks_enc, masks_pred = mask_collator(batch)
+
+    # NOTE usually list is done from videodataset transform buffer = [self.transform(clip) for clip in buffer]
+    # btu we dont have that datset here
+    return ([states], actions, labels, clip_indices), masks_enc, masks_pred
+
 
 
 def visualize_sample(states, actions):

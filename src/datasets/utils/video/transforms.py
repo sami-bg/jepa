@@ -19,6 +19,7 @@ from torchvision import transforms
 
 import src.datasets.utils.video.functional as FF
 from src.datasets.utils.video.randaugment import rand_augment_transform
+from datasets.utils.video.labelwise_color_filter_augmentation import LabelwiseColorFilterAugmentation
 
 
 _pil_interpolation_to_str = {
@@ -43,6 +44,10 @@ def _pil_interp(method):
         return Image.HAMMING
     else:
         return Image.BILINEAR
+
+
+def create_layerwise_color_filter(split: str = "train", alpha: float = 0., normalize_fn = None):
+    return LabelwiseColorFilterAugmentation(split, alpha=alpha, normalize_fn=normalize_fn)
 
 
 def random_short_side_scale_jitter(

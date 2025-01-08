@@ -170,7 +170,9 @@ def make_transforms(
     crop_size=224,
     num_views_per_clip=1,
     normalize=((0.485, 0.456, 0.406),
-               (0.229, 0.224, 0.225))
+               (0.229, 0.224, 0.225)),
+    labelwise_color_filter=0.,
+    split="train",
 ):
 
     if not training and num_views_per_clip > 1:
@@ -179,6 +181,8 @@ def make_transforms(
             num_views_per_clip=num_views_per_clip,
             short_side_size=crop_size,
             normalize=normalize,
+            labelwise_color_filter=labelwise_color_filter,
+            split=split
         )
 
     else:
@@ -192,7 +196,10 @@ def make_transforms(
             motion_shift=motion_shift,
             crop_size=crop_size,
             normalize=normalize,
+            labelwise_color_filter=labelwise_color_filter,
+            split=split
         )
+
     return _frames_augmentation
 
 
@@ -209,7 +216,9 @@ class VideoTransform(object):
         motion_shift=False,
         crop_size=224,
         normalize=((0.485, 0.456, 0.406),
-                   (0.229, 0.224, 0.225))
+                   (0.229, 0.224, 0.225)),
+        labelwise_color_filter=0.,
+        split="train",
     ):
 
         self.training = training
@@ -248,7 +257,14 @@ class VideoTransform(object):
             device='cpu',
         )
 
-    def __call__(self, buffer):
+        self.labelwise_color_filter = video_transforms.create_layerwise_color_filter(
+            split=split,
+            alpha = (alpha := labelwise_color_filter),  # Default case of alpha=0 means no augmentation
+            normalize_fn=tensor_normalize
+        )
+
+
+    def __call__(self, buffer, label=None):
 
         if not self.training:
             return [self.eval_transform(buffer)]
@@ -280,6 +296,8 @@ class VideoTransform(object):
             buffer = self.erase_transform(buffer)
             buffer = buffer.permute(1, 0, 2, 3)
 
+        buffer = self.labelwise_color_filter(buffer, label)
+
         return [buffer]
 
 
@@ -290,7 +308,9 @@ class EvalVideoTransform(object):
         num_views_per_clip=1,
         short_side_size=224,
         normalize=((0.485, 0.456, 0.406),
-                   (0.229, 0.224, 0.225))
+                   (0.229, 0.224, 0.225)),
+        labelwise_color_filter=0.,
+        split="train",
     ):
         self.views_per_clip = num_views_per_clip
         self.short_side_size = short_side_size
@@ -300,7 +320,14 @@ class EvalVideoTransform(object):
             video_transforms.Normalize(mean=normalize[0], std=normalize[1])
         ])
 
-    def __call__(self, buffer):
+        self.labelwise_color_filter = video_transforms.create_layerwise_color_filter(
+            split=split,
+            alpha = (alpha := labelwise_color_filter),  # Default case of alpha=0 means no augmentation
+            normalize_fn=tensor_normalize
+        )
+
+
+    def __call__(self, buffer, label=None):
 
         # Sample several spatial views of each clip
         buffer = np.array(self.spatial_resize(buffer))
@@ -318,6 +345,7 @@ class EvalVideoTransform(object):
             else:
                 view = buffer[:, :, start:start+side_len, :]
             view = self.to_tensor(view)
+            view = self.labelwise_color_filter(view, label)
             all_views.append(view)
 
         return all_views

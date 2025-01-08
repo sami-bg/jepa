@@ -99,6 +99,12 @@ def main(args_eval, resume_preempt=False):
     eval_duration = args_pretrain.get('clip_duration', None)
     eval_num_views_per_segment = args_data.get('num_views_per_segment', 1)
 
+    # -- DATA AUGS
+    # NOTE SAMI: This is only here because of the distractors
+    cfgs_data_aug = args_eval.get('data_aug')
+    labelwise_color_filter = cfgs_data_aug.get('labelwise_color_filter', {})
+    labelwise_color_filter_alpha = labelwise_color_filter.get('alpha', 0.)
+
     # -- OPTIMIZATION
     args_opt = args_eval.get('optimization')
     resolution = args_opt.get('resolution', 224)
@@ -199,7 +205,9 @@ def main(args_eval, resume_preempt=False):
         batch_size=batch_size,
         world_size=world_size,
         rank=rank,
-        training=True)
+        training=True,
+        labelwise_color_filter_alpha=labelwise_color_filter_alpha,
+        split="train")
     val_loader = make_dataloader(
         dataset_type=dataset_type,
         root_path=val_data_path,
@@ -213,7 +221,10 @@ def main(args_eval, resume_preempt=False):
         batch_size=batch_size,
         world_size=world_size,
         rank=rank,
-        training=False)
+        training=False,
+        labelwise_color_filter_alpha=labelwise_color_filter_alpha,
+        split="eval")
+
     ipe = len(train_loader)
     logger.info(f'Dataloader created... iterations per epoch: {ipe}')
 
@@ -454,7 +465,9 @@ def make_dataloader(
     allow_segment_overlap=True,
     training=False,
     num_workers=12,
-    subset_file=None
+    subset_file=None,
+    labelwise_color_filter_alpha=0.,
+    split="eval",
 ):
     # Make Video Transforms
     transform = make_transforms(
@@ -467,6 +480,8 @@ def make_dataloader(
         auto_augment=True,
         motion_shift=False,
         crop_size=resolution,
+        labelwise_color_filter=labelwise_color_filter_alpha,
+        split=split
     )
 
     data_loader, _ = init_data(
