@@ -133,6 +133,8 @@ def main(args, resume_preempt=False):
     # NOTE SAMI
     labelwise_color_filter = cfgs_data_aug.get('labelwise_color_filter', {})
     labelwise_color_filter_alpha = labelwise_color_filter.get('alpha', 0.)
+    labelwise_temporal_flip = cfgs_data_aug.get('labelwise_temporal_flip')
+
 
     # -- LOSS
     cfgs_loss = args.get('loss')
@@ -255,6 +257,7 @@ def main(args, resume_preempt=False):
         motion_shift=motion_shift,
         crop_size=crop_size,
         labelwise_color_filter=labelwise_color_filter_alpha,
+        labelwise_temporal_flip=labelwise_temporal_flip,
         split="train")
 
     # -- init data-loaders/samplers

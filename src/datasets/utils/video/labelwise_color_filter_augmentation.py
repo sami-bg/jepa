@@ -15,7 +15,7 @@ HUE   = int
 def warn_once(x: str): logger.warning(x)
 
 
-def max_gap_elts_radial(angles: list[int]) -> tuple[int, int]:
+def max_gap_elts_radial(angles: list[HUE]) -> tuple[HUE, HUE]:
     # NOTE return the two angles (in [0,360)) which define the largest circular gap.
     # The second angle may exceed 360 if the wrap-around is used, so that
     # b - a = largest gap in a consistent ascending direction.
