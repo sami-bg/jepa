@@ -20,10 +20,12 @@ class PushPullDataset(Dataset):
             height,
             width,
             transform=None,
-            device = torch.device("cpu")
+            device = torch.device("cpu"),
+            split='train'
         ):
         
         super().__init__()
+        self.split                 = split
         self.num_datapoints: int   = num_datapoints
         self.batch_size: int    = batch_size
         self.timesteps: int     = timesteps
@@ -153,7 +155,8 @@ def make_pushpull_dataset(
     rank=0,
     drop_last=True,
     pin_mem=True,
-    collator=None
+    collator=None,
+    split='train',
 ):
     dataset = PushPullDataset(
         num_datapoints=1_000_000,  # Pre-training size from paper
@@ -163,6 +166,7 @@ def make_pushpull_dataset(
         num_channels=3,
         height=224,
         width=224,
+        split=split,
         device=torch.device("cpu"),  # Move to GPU in transform
     )
 

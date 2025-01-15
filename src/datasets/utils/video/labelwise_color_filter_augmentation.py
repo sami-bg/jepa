@@ -122,9 +122,19 @@ class LabelwiseColorFilterAugmentation:
     def __call__(self, *args, **kwds):
         return self.augment_video(*args, **kwds)
     
+def _plot(x: torch.Tensor):
+    import matplotlib.pyplot as plt
+    from einops import rearrange
+    import numpy as np
+    print(x.min(), x.max())
+    x = rearrange(x, "c h w -> h w c")
+    x = x.numpy()
+    if x.max() < 1.: x *= 255
+    plt.figure(figsize=(8,8))
+    plt.axis('off')
+    plt.imshow(x)
+    plt.savefig('test.png')
 
-# import matplotlib.pyplot as plt
-# import numpy as np
 # from matplotlib.patches import Circle
 # from multiprocessing import Pool
 

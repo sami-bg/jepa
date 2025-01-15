@@ -118,13 +118,14 @@ class VideoTransform(object):
         if self.random_horizontal_flip:
             buffer, _ = video_transforms.horizontal_flip(0.5, buffer)
 
-        buffer = _tensor_normalize_inplace(buffer, self.mean, self.std)
+        buffer = self.labelwise_color_filter(buffer, label)
+
         if self.reprob > 0:
             buffer = buffer.permute(1, 0, 2, 3)
             buffer = self.erase_transform(buffer)
             buffer = buffer.permute(1, 0, 2, 3)
 
-        buffer = self.labelwise_color_filter(buffer, label)
+        buffer = _tensor_normalize_inplace(buffer, self.mean, self.std)
 
         return buffer
 
