@@ -257,7 +257,7 @@ def main(args, resume_preempt=False):
         motion_shift=motion_shift,
         crop_size=crop_size,
         labelwise_color_filter=labelwise_color_filter_alpha,
-        labelwise_temporal_flip=labelwise_temporal_flip,
+        # labelwise_temporal_flip=labelwise_temporal_flip,
         split="train")
 
     # -- init data-loaders/samplers
@@ -399,10 +399,12 @@ def main(args, resume_preempt=False):
 
             try:
                 udata, masks_enc, masks_pred = next(loader)
-            except Exception:
-                logger.info('Exhausted data loaders. Refreshing...')
-                loader = iter(unsupervised_loader)
-                udata, masks_enc, masks_pred = next(loader)
+            finally: pass
+            # except Exception as e:
+            #     raise e
+                # logger.info('Exhausted data loaders. Refreshing...')
+                # loader = iter(unsupervised_loader)
+                # udata, masks_enc, masks_pred = next(loader)
             assert len(masks_enc) == len(masks_pred), \
                 'Currently require num encoder masks = num predictor masks'
 

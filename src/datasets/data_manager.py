@@ -103,4 +103,16 @@ def init_data(
             drop_last=drop_last,
             collator=collator
         )
+    elif data.lower() == 'pushpull':
+        from src.datasets.push_pull_dataset import make_pushpull_dataset
+        dataset, data_loader, dist_sampler = make_pushpull_dataset(
+            batch_size=batch_size,
+            n_steps=clip_len,  # Reuse clip_len param for sequence length
+            transform=transform,
+            num_workers=num_workers,
+            world_size=world_size,
+            rank=rank,
+            drop_last=drop_last,
+            collator=collator
+        )
     return (data_loader, dist_sampler)

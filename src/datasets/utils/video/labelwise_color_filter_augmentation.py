@@ -89,29 +89,38 @@ class LabelwiseColorFilterAugmentation:
         self.labels_to_color[label] = colorsys.hsv_to_rgb(hue / 360, s=1., v=1.)
         return self.labels_to_color[label]
 
-    def _augment_frame_with_color(self, frame_CHW: torch.Tensor, color) -> torch.Tensor:
-        color_tensor = torch.tensor(color, device=frame_CHW.device, dtype=frame_CHW.dtype).view(3, 1, 1)
+    def _augment_frame_with_color(self, frame_CHW: torch.Tensor, color: torch.Tensor) -> torch.Tensor:
 
-        if self.normalize_fn is not None:
-            color_tensor = self.normalize_fn(color_tensor)
-
-        tinted_frame = (1 - self.alpha) * frame_CHW + self.alpha * color_tensor        
+        tinted_frame = (1 - self.alpha) * frame_CHW + self.alpha * color        
         return torch.clamp(tinted_frame, 0, 1)
     
 
-    def augment_video(self, video_TCHW: torch.Tensor, label: str) -> torch.Tensor:
+    def augment_video(self, video_CTHW: torch.Tensor, label: torch.Tensor) -> torch.Tensor:
         if label is None:
             warn_once(f'Received no label for LabelwiseColorFilterAugmentation')
-            return video_TCHW
+            return video_CTHW
+        
+        label = label.item()
+        T = video_CTHW.shape[1]
+        if self.normalize_fn:
+            video_CTHW = self.normalize_fn(video_CTHW)
+
+        color = self.assign_to_color(label)
+        color_vid_frames = torch.tensor(color, device=video_CTHW.device, dtype=video_CTHW.dtype)\
+            .view(3, 1, 1)\
+            .unsqueeze(0)\
+            .repeat(T,1,1,1)
 
         label = str(label)
-        for frame_idx in range(video_TCHW.shape[0]):
-            frame = video_TCHW[frame_idx, ::]
-            color = self.assign_to_color(label)
-            print(f'{label=} received {color=}')
-            video_TCHW[frame_idx, ::] = self._augment_frame_with_color(frame, color)
-        
-        return video_TCHW
+        for frame_idx in range(T):
+            frame = video_CTHW[:, frame_idx, ::]
+            color = color_vid_frames[frame_idx, ::]
+            video_CTHW[:, frame_idx, ::] = self._augment_frame_with_color(frame, color)
+
+        return video_CTHW
+    
+    def __call__(self, *args, **kwds):
+        return self.augment_video(*args, **kwds)
     
 
 # import matplotlib.pyplot as plt

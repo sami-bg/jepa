@@ -2,10 +2,12 @@ import torch
 import random
 from torch.utils.data import Dataset
 from typing import NamedTuple, Literal
+from functools import partial
+from einops import rearrange
 
 class Sample(NamedTuple):
-    frames_BTCHW: torch.Tensor
-    labels_BTL: torch.Tensor
+    frames_BTHWC: torch.Tensor
+    labels_B: torch.Tensor
 
 
 class PushPullDataset(Dataset):
@@ -17,6 +19,7 @@ class PushPullDataset(Dataset):
             num_channels,
             height,
             width,
+            transform=None,
             device = torch.device("cpu")
         ):
         
@@ -24,6 +27,7 @@ class PushPullDataset(Dataset):
         self.num_datapoints: int   = num_datapoints
         self.batch_size: int    = batch_size
         self.timesteps: int     = timesteps
+        self.transform          = transform
         self.num_channels: int  = num_channels
         self.height: int        = height
         self.width: int         = width
@@ -46,20 +50,6 @@ class PushPullDataset(Dataset):
         )
 
     def generate_multistep_sample(self, direction: Literal[1, -1]) -> torch.Tensor:
-        """
-        Frame dimensions: self.height, self.width.
-        Video timesteps: self.timesteps
-        Device: self.device
-
-        Frame 0:
-        1. Put a circle of a random color in a random position in the frame.
-        2. Put a square of a random color in a random position in the frame, that does not cover the circle.
-        For each frame 1->self.timesteps:
-        3. If the direction is -1, move the square away from the circle.
-        4. If the direction is 1,  move the square towards the circle.
-
-        Conditions: the square must never be pushed fully outside of the boundaries of the image. It is okay if it is partially outside the images.
-        """
         # Initialize empty video tensor
         video = torch.zeros(self.timesteps, self.num_channels, self.height, self.width, device=self.device)
         
@@ -67,23 +57,27 @@ class PushPullDataset(Dataset):
         circle_color = torch.rand(3, device=self.device)
         square_color = torch.rand(3, device=self.device)
         
-        # Random circle position (center coordinates)
-        circle_x = torch.randint(self.width//4, 3*self.width//4, (1,), device=self.device).item()
-        circle_y = torch.randint(self.height//4, 3*self.height//4, (1,), device=self.device).item()
-        circle_radius = min(self.height, self.width) // 10
+        # Place circle in center
+        circle_x = self.width // 2
+        circle_y = self.height // 2
+        # Made circle smaller (changed from //10 to //15)
+        circle_radius = min(self.height, self.width) // 15
         
-        # Initial square position and size
-        square_size = min(self.height, self.width) // 8
+        # Initial square position and size - made square smaller (changed from //8 to //12)
+        square_size = min(self.height, self.width) // 12
         
-        # Place square at a random position that doesn't overlap with circle
-        while True:
-            square_x = torch.randint(square_size//2, self.width-square_size//2, (1,), device=self.device).item()
-            square_y = torch.randint(square_size//2, self.height-square_size//2, (1,), device=self.device).item()
-            
-            # Check if square is far enough from circle
-            dist = ((square_x - circle_x)**2 + (square_y - circle_y)**2)**0.5
-            if dist > circle_radius + square_size:
-                break
+        # Calculate radius where square should be placed to be equidistant
+        # from circle and frame edge
+        max_radius = min(self.height, self.width) // 2  
+        diagonal_radius = ((self.height//2)**2 + (self.width//2)**2)**0.5  
+        placement_radius = (max_radius + diagonal_radius) / 4  
+        
+        # Random angle for square placement
+        angle = torch.rand(1, device=self.device).item() * 2 * torch.pi
+        
+        # Place square at this radius and angle
+        square_x = circle_x + placement_radius * torch.cos(torch.tensor(angle))
+        square_y = circle_y + placement_radius * torch.sin(torch.tensor(angle))
         
         # Calculate movement vector (normalized direction from square to circle)
         dx = circle_x - square_x
@@ -91,12 +85,11 @@ class PushPullDataset(Dataset):
         dist = max((dx**2 + dy**2)**0.5, 1e-6)  # avoid division by zero
         dx, dy = dx/dist, dy/dist
         
-        # Movement speed
-        speed = min(self.height, self.width) // 40
+        # Movement speed - made slower (changed from //40 to //80)
+        speed = min(self.height, self.width) / 240
         
-        # Generate frames
+        # Rest of the function remains the same...
         for t in range(self.timesteps):
-            # Draw circle
             y_grid, x_grid = torch.meshgrid(
                 torch.arange(self.height, device=self.device),
                 torch.arange(self.width, device=self.device),
@@ -104,7 +97,6 @@ class PushPullDataset(Dataset):
             )
             circle_mask = ((x_grid - circle_x)**2 + (y_grid - circle_y)**2 <= circle_radius**2)
             
-            # Draw square
             square_mask = (
                 (x_grid >= square_x - square_size//2) & 
                 (x_grid < square_x + square_size//2) & 
@@ -112,29 +104,35 @@ class PushPullDataset(Dataset):
                 (y_grid < square_y + square_size//2)
             )
             
-            # Add shapes to frame with their colors
             for c in range(self.num_channels):
                 video[t, c][circle_mask] = circle_color[c]
                 video[t, c][square_mask] = square_color[c]
             
-            # Update square position for next frame
             if t < self.timesteps - 1:
-                # Move square towards/away from circle based on direction
                 new_square_x = square_x + direction * speed * dx
                 new_square_y = square_y + direction * speed * dy
                 
-                # Constrain square position to prevent it from leaving the frame entirely
                 new_square_x = max(square_size//2, min(self.width - square_size//2, new_square_x))
                 new_square_y = max(square_size//2, min(self.height - square_size//2, new_square_y))
                 
                 square_x, square_y = new_square_x, new_square_y
         
-        return video
-        
-    def generate_multistep_batch(self) -> tuple[torch.Tensor, list[int]]:
-        labels = self._random_direction(self.batch_size)
-        samples_TCHW = [self.generate_multistep_sample(dir) for dir in labels]
-        return torch.stack(samples_TCHW, dim=0), labels
+        return rearrange(video, "t c h w -> t h w c")
+
+    def generate_multistep_batch(self) -> Sample:
+        labels_B = torch.tensor(self._random_direction(self.batch_size))
+        # this is what jepa needs i guess
+        frames_BTHWC = torch.stack([self.generate_multistep_sample(dir) for dir in labels_B], dim=0)
+
+        if self.transform:
+            frames_BTHWC = torch.stack([self.transform(clip, label) for clip, label in zip(frames_BTHWC, labels_B)], dim=0)
+
+
+        sample = Sample(
+            frames_BTHWC=frames_BTHWC,
+            labels_B=labels_B
+        )
+        return sample
 
     def __len__(self):
         return self.num_datapoints
@@ -144,7 +142,101 @@ class PushPullDataset(Dataset):
     
     def __iter__(self):
         for _ in range(self.num_datapoints): yield self.generate_multistep_batch()
+
+
+def make_pushpull_dataset(
+    batch_size,
+    n_steps=16,
+    transform=None,
+    num_workers=8,
+    world_size=1,
+    rank=0,
+    drop_last=True,
+    pin_mem=True,
+    collator=None
+):
+    dataset = PushPullDataset(
+        num_datapoints=1_000_000,  # Pre-training size from paper
+        batch_size=batch_size, 
+        timesteps=n_steps,
+        transform=transform,
+        num_channels=3,
+        height=224,
+        width=224,
+        device=torch.device("cpu"),  # Move to GPU in transform
+    )
+
+    dist_sampler = torch.utils.data.distributed.DistributedSampler(
+        dataset,
+        num_replicas=world_size,
+        rank=rank,
+        shuffle=True
+    )
+
+    if collator:
+        collate_fn = lambda x: combined_collate_fn(x, collator, n_steps)
+    else:
+        collate_fn = partial(pushpull_collate_fn, frames_per_clip=n_steps)
+
+    data_loader = torch.utils.data.DataLoader(
+        dataset,
+        batch_size=1, # NOTE dataset does batching itself
+        sampler=dist_sampler,
+        num_workers=num_workers,
+        drop_last=drop_last,
+        pin_memory=pin_mem,
+        collate_fn=collate_fn
+    )
+
+    return dataset, data_loader, dist_sampler
+
+
+def pushpull_collate_fn(samples: list[Sample] , frames_per_clip: int):
+    """Match VideoDataset's format:
+    - buffer: list of clips, each clip containing frames
+    - label: dummy label since we have no classes
+    - clip_indices: temporal indices for frames in each clip
+    """
+    sample = samples[0]  # Get single Sample since batch_size=1
+    states = sample.frames_BTHWC  # [batch_size, T, 1, 28, 28]
+    labels = sample.labels_B
     
+    num_clips = states.shape[1] // frames_per_clip
+
+    # First collect ALL indices
+    clip_indices = []
+    for i in range(num_clips):
+        indices = torch.arange(i*frames_per_clip, (i+1)*frames_per_clip)
+        clip_indices.append(indices)
+    
+    return states, labels, clip_indices
+
+
+def combined_collate_fn(samples, mask_collator, frames_per_clip):
+    """
+    Combines dot dataset collation with V-JEPA mask generation
+    
+    Args:
+        samples: List of Sample objects from ContinuousMotionDataset
+        mask_collator: V-JEPA's MaskCollator instance
+        frames_per_clip: Number of frames per clip
+    """
+    # First do dot dataset collation 
+    states, labels, clip_indices = pushpull_collate_fn(samples, frames_per_clip)
+    
+    # Create batch tuple as expected by MaskCollator
+    # MaskCollator expects a batch that can be processed by default_collate
+    batch = [(state,) for state in states]  # Make each state a tuple
+    
+    # Get masks using V-JEPA's collator
+    # This returns (collated_batch, collated_masks_enc, collated_masks_pred)
+    _, masks_enc, masks_pred = mask_collator(batch)
+
+    # NOTE usually list is done from videodataset transform buffer = [self.transform(clip) for clip in buffer]
+    # btu we dont have that datset here
+    return ([states], labels, clip_indices), masks_enc, masks_pred
+
+
 
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
@@ -235,7 +327,7 @@ if __name__ == "__main__":
     dataset = PushPullDataset(
         num_datapoints=100,
         batch_size=4,
-        timesteps=16,
+        timesteps=32,
         num_channels=3,
         height=64,
         width=64
@@ -260,11 +352,11 @@ if __name__ == "__main__":
         aug_train.augment_video(batch_videos[i], labels[i])
         for i in range(batch_videos.shape[0])
     ], dim=0)
-    visualize_batch(filtered, save_path="tinted_video_batch.gif")
+    visualize_batch(filtered, save_path="tinted_video_batch2.gif")
     
     filtered_test = torch.stack([
         aug_test.augment_video(batch_videos[i], labels[i])
         for i in range(batch_videos.shape[0])
     ], dim=0)
 
-    visualize_batch(filtered_test, save_path="eval_tinted_video_batch.gif")
+    visualize_batch(filtered_test, save_path="eval_tinted_video_batch2.gif")

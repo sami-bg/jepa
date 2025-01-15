@@ -19,7 +19,7 @@ from torchvision import transforms
 
 import src.datasets.utils.video.functional as FF
 from src.datasets.utils.video.randaugment import rand_augment_transform
-from datasets.utils.video.labelwise_color_filter_augmentation import LabelwiseColorFilterAugmentation
+from src.datasets.utils.video.labelwise_color_filter_augmentation import LabelwiseColorFilterAugmentation
 
 
 _pil_interpolation_to_str = {

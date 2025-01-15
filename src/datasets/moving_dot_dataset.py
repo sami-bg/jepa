@@ -110,7 +110,6 @@ def combined_collate_fn(samples, mask_collator, frames_per_clip):
     return ([states], actions, labels, clip_indices), masks_enc, masks_pred
 
 
-
 def visualize_sample(states, actions):
     """
     Visualize the dot movement and corresponding actions

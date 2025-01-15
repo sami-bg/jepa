@@ -10,7 +10,7 @@ import torchvision.transforms as transforms
 
 import src.datasets.utils.video.transforms as video_transforms
 from src.datasets.utils.video.randerase import RandomErasing
-
+from functools import partial
 
 def make_transforms(
     random_horizontal_flip=True,
@@ -74,9 +74,9 @@ class VideoTransform(object):
         self.labelwise_color_filter = video_transforms.create_layerwise_color_filter(
             split=split,
             alpha = (alpha := labelwise_color_filter),  # Default case of alpha=0 means no augmentation
-            normalize_fn=_tensor_normalize_inplace
+            normalize_fn=partial(_tensor_normalize_inplace, mean=self.mean, std=self.std)
         )
-        
+
         self.autoaug_transform = video_transforms.create_random_augment(
             input_size=(crop_size, crop_size),
             auto_augment='rand-m7-n4-mstd0.5-inc1',
