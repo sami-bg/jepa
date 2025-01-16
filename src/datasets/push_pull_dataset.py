@@ -36,7 +36,7 @@ class PushPullDataset(Dataset):
         self.device             = device
 
     DIRECTIONS = {
-        'AWAY': -1,
+        'AWAY': 0,
         'TOWARDS': 1
     }
 
@@ -51,7 +51,7 @@ class PushPullDataset(Dataset):
             k=batch_size
         )
 
-    def generate_multistep_sample(self, direction: Literal[1, -1]) -> torch.Tensor:
+    def generate_multistep_sample(self, direction: Literal[1, 0]) -> torch.Tensor:
         # Initialize empty video tensor
         video = torch.zeros(self.timesteps, self.num_channels, self.height, self.width, device=self.device)
         
@@ -111,6 +111,8 @@ class PushPullDataset(Dataset):
                 video[t, c][square_mask] = square_color[c]
             
             if t < self.timesteps - 1:
+                # NOTE Just to enforce labels as 0 or 1
+                direction = -1 if direction == 0 else 1
                 new_square_x = square_x + direction * speed * dx
                 new_square_y = square_y + direction * speed * dy
                 
@@ -122,7 +124,7 @@ class PushPullDataset(Dataset):
         return rearrange(video, "t c h w -> t h w c")
 
     def generate_multistep_batch(self) -> Sample:
-        labels_B = torch.tensor(self._random_direction(self.batch_size))
+        labels_B = torch.tensor(self._random_direction(self.batch_size)).unsqueeze(1).to(dtype=torch.float16)
         # this is what jepa needs i guess
         frames_BTHWC = torch.stack([self.generate_multistep_sample(dir) for dir in labels_B], dim=0)
 
