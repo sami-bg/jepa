@@ -385,7 +385,8 @@ def make_dataloader(
     rank,
     resolution=224,
     training=False,
-    subset_file=None
+    subset_file=None,
+    num_labels_per_dataset=None
 ):
     normalization = ((0.485, 0.456, 0.406),
                      (0.229, 0.224, 0.225))
@@ -419,7 +420,9 @@ def make_dataloader(
         training=training,
         copy_data=False,
         drop_last=False,
-        subset_file=subset_file)
+        subset_file=subset_file,
+        num_labels_per_dataset=num_labels_per_dataset
+    )
     return data_loader
 
 

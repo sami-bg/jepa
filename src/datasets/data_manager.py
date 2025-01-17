@@ -44,6 +44,7 @@ def init_data(
     ipe=300,
     log_dir=None,
     noise=0.0, static_noise=0.0,
+    num_labels_per_dataset=None
 ):
 
     if (data.lower() == 'imagenet') \
@@ -87,7 +88,9 @@ def init_data(
             world_size=world_size,
             rank=rank,
             drop_last=drop_last,
-            log_dir=log_dir)
+            log_dir=log_dir,
+            num_labels_per_dataset=num_labels_per_dataset
+        )
     elif data.lower() == 'movingdot':
         from src.datasets.moving_dot_dataset import make_movingdot_dataset
         dataset, data_loader, dist_sampler = make_movingdot_dataset(

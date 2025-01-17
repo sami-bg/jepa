@@ -92,6 +92,7 @@ def main(args_eval, resume_preempt=False):
     train_data_path = [args_data.get('dataset_train')]
     val_data_path = [args_data.get('dataset_val')]
     dataset_type = args_data.get('dataset_type', 'VideoDataset')
+    dataset_num_labels_clip = args_data.get('dataset_num_labels_clip')
     num_classes = args_data.get('num_classes')
     eval_num_segments = args_data.get('num_segments', 1)
     eval_frames_per_clip = args_data.get('frames_per_clip', 16)
@@ -104,7 +105,7 @@ def main(args_eval, resume_preempt=False):
     cfgs_data_aug = args_eval.get('data_aug')
     labelwise_color_filter = cfgs_data_aug.get('labelwise_color_filter', {})
     labelwise_color_filter_alpha = labelwise_color_filter.get('alpha', 0.)
-
+    # /users/sboughan/ssl/v-jepa-world-models/_src/_datasets/datalists/jepa/train_datalist_ssv2_jepa_egocentric.csv
     # -- OPTIMIZATION
     args_opt = args_eval.get('optimization')
     resolution = args_opt.get('resolution', 224)
@@ -169,7 +170,7 @@ def main(args_eval, resume_preempt=False):
         checkpoint_key=checkpoint_key,
         use_SiLU=use_SiLU,
         tight_SiLU=tight_SiLU,
-        use_sdpa=use_sdpa)
+        use_sdpa=use_sdpa,)
     if pretrain_frames_per_clip == 1:
         # Process each frame independently and aggregate
         encoder = FrameAggregation(encoder).to(device)
@@ -207,7 +208,8 @@ def main(args_eval, resume_preempt=False):
         rank=rank,
         training=True,
         labelwise_color_filter_alpha=labelwise_color_filter_alpha,
-        split="train")
+        split="train",
+        num_labels_per_dataset=dataset_num_labels_clip)
     val_loader = make_dataloader(
         dataset_type=dataset_type,
         root_path=val_data_path,
@@ -223,7 +225,8 @@ def main(args_eval, resume_preempt=False):
         rank=rank,
         training=False,
         labelwise_color_filter_alpha=labelwise_color_filter_alpha,
-        split="eval")
+        split="eval",
+        num_labels_per_dataset=dataset_num_labels_clip)
 
     ipe = len(train_loader)
     logger.info(f'Dataloader created... iterations per epoch: {ipe}')
@@ -468,6 +471,7 @@ def make_dataloader(
     subset_file=None,
     labelwise_color_filter_alpha=0.,
     split="eval",
+    num_labels_per_dataset=None
 ):
     # Make Video Transforms
     transform = make_transforms(
@@ -499,7 +503,9 @@ def make_dataloader(
         num_workers=num_workers,
         copy_data=False,
         drop_last=False,
-        subset_file=subset_file)
+        subset_file=subset_file,
+        num_labels_per_dataset=num_labels_per_dataset)
+
     return data_loader
 
 

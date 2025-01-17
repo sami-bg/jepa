@@ -95,12 +95,14 @@ class LabelwiseColorFilterAugmentation:
         return torch.clamp(tinted_frame, 0, 1)
     
 
-    def augment_video(self, video_CTHW: torch.Tensor, label: torch.Tensor) -> torch.Tensor:
+    def augment_video(self, video_CTHW: torch.Tensor, label: torch.Tensor | int | float) -> torch.Tensor:
         if label is None:
             warn_once(f'Received no label for LabelwiseColorFilterAugmentation')
             return video_CTHW
         
-        label = label.item()
+        if isinstance(label, torch.Tensor):
+            label = label.item()
+
         T = video_CTHW.shape[1]
         if self.normalize_fn:
             video_CTHW = self.normalize_fn(video_CTHW)

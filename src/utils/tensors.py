@@ -73,8 +73,14 @@ def repeat_interleave_batch(x, B, repeat):
     return x
 
 
-_RANKME_ACCUMULATE = 32
+_RANKME_ACCUMULATE = 16
 _RANKME_EPSILON = 1e-7
+
+from toolz import memoize
+
+@memoize
+def warn_once(x: str):
+    logger.warning(x)
 
 class RankMe():
     def __init__(self, limit: int = _RANKME_ACCUMULATE, epsilon: float=_RANKME_EPSILON):
@@ -94,21 +100,29 @@ class RankMe():
 
             flattened = encoding.reshape(batch_size, -1).detach()
             gathered_encodings = [torch.zeros_like(flattened) for _ in range(world_size)]
+            
             dist.all_gather(gathered_encodings, flattened)
 
             full_batch = torch.cat(gathered_encodings, dim=0)
             self.bounded_queue.append(full_batch)
 
             if len(self.bounded_queue) > 0:
-                queue_batch = torch.cat(list(self.bounded_queue), dim=0)
+                try:
+                    queue_batch = torch.cat(list(self.bounded_queue), dim=0)
+                except Exception as e:
+                    logger.warning(f'Skipping iteration of RankMe.. {e} shapes: {[x.shape for x in self.bounded_queue]}')
+                    return 0.
+
                 score = self.calculate_rankme(queue_batch, self.epsilon)
                 # NOTE that all devices will have the same data at this point so no need for any allreduce/allgather
                 return score
-    
+
+
     @classmethod
     def calculate_rankme(cls, x: torch.Tensor, epsilon: float) -> float:
         with torch.no_grad():
             if x.dtype != torch.float32:
+                warn_once(f'Converting from {x.dtype} -> torch.float32')
                 x = x.to(torch.float32)
             _u, s, _vh = torch.linalg.svd(x, full_matrices=False)
             p = (s / torch.sum(s, axis=0)) + epsilon

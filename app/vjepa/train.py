@@ -104,6 +104,8 @@ def main(args, resume_preempt=False):
     # -- DATA
     cfgs_data = args.get('data')
     dataset_type = cfgs_data.get('dataset_type', 'videodataset')
+    # NOTE SAMI I made this. TOTAL LABELS across all datasets.
+    dataset_num_labels_clip = cfgs_data.get('dataset_num_labels_clip')
     mask_type = cfgs_data.get('mask_type', 'multiblock3d')
     dataset_paths = cfgs_data.get('datasets', [])
     datasets_weights = cfgs_data.get('datasets_weights', None)
@@ -282,7 +284,8 @@ def main(args, resume_preempt=False):
          rank=rank,
          log_dir=folder if log_resource_util_data else None,
          # NOTE: only for distractor of moving dot dataset
-         noise=cfgs_data.get('noise', 0.), static_noise=cfgs_data.get('static_noise', 0.)
+         noise=cfgs_data.get('noise', 0.), static_noise=cfgs_data.get('static_noise', 0.),
+         num_labels_per_dataset=dataset_num_labels_clip
         )
     try:
         _dlen = len(unsupervised_loader)
@@ -399,12 +402,10 @@ def main(args, resume_preempt=False):
 
             try:
                 udata, masks_enc, masks_pred = next(loader)
-            finally: pass
-            # except Exception as e:
-            #     raise e
-                # logger.info('Exhausted data loaders. Refreshing...')
-                # loader = iter(unsupervised_loader)
-                # udata, masks_enc, masks_pred = next(loader)
+            except Exception as e:
+                logger.info('Exhausted data loaders. Refreshing...')
+                loader = iter(unsupervised_loader)
+                udata, masks_enc, masks_pred = next(loader)
             assert len(masks_enc) == len(masks_pred), \
                 'Currently require num encoder masks = num predictor masks'
 
@@ -617,6 +618,10 @@ def main(args, resume_preempt=False):
                 grad_stats_pred.global_norm = float(_pred_norm)
                 optimizer.zero_grad()
                 optim_stats = adamw_logger(optimizer)
+                # TODO FIXME Why are each flattened rankme tensor diff shapes? Could it be that video clips are diff sizes? 
+                # [WARNING ][2025-01-16 19:34:15][enqueue                  ] Skipping iteration of RankMe.. 
+                # Sizes of tensors must match except in dimension 0. Expected size 860160 but got size 552960 for tensor number 1 in the list.
+                # shapes: [torch.Size([16, 860160]), torch.Size([16, 552960]), torch.Size([16, 811008]), torch.Size([16, 540672]), torch.Size([16, 860160]), torch.Size([16, 657408]), torch.Size([16, 811008]), torch.Size([16, 559104]), torch.Size([16, 811008]), torch.Size([16, 522240]), torch.Size([16, 860160]), torch.Size([16, 497664]), torch.Size([16, 860160]), torch.Size([16, 565248]), torch.Size([16, 860160]), torch.Size([16, 565248])]
                 # rankme_score = rankme().enqueue(z)
                 rankme_score = 0.
                 # Step 3. momentum update of target encoder
@@ -637,6 +642,7 @@ def main(args, resume_preempt=False):
                     rankme_score,
                     optim_stats,
                 )
+
             (loss, loss_jepa, loss_reg, loss_temp, _new_lr, _new_wd, grad_stats, grad_stats_pred, rankme_score, optim_stats,), gpu_etime_ms = gpu_timer(train_step)
             iter_elapsed_time_ms = (time.time() - itr_start_time) * 1000.
             loss_meter.update(loss)

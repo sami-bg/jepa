@@ -45,6 +45,7 @@ def make_videodataset(
     pin_mem=True,
     duration=None,
     log_dir=None,
+    num_labels_per_dataset=None,
 ):
     dataset = VideoDataset(
         data_paths=data_paths,
@@ -58,7 +59,9 @@ def make_videodataset(
         filter_long_videos=filter_long_videos,
         duration=duration,
         shared_transform=shared_transform,
-        transform=transform)
+        transform=transform,
+        num_labels_per_dataset=num_labels_per_dataset
+    )
 
     logger.info('VideoDataset dataset created')
     if datasets_weights is not None:
@@ -105,7 +108,12 @@ class VideoDataset(torch.utils.data.Dataset):
         filter_short_videos=False,
         filter_long_videos=int(10**9),
         duration=None,  # duration in seconds
+        # lets you control the number of labels to consider when constructing the dataset.
+        # assumes labels are numbers. num_labels=100 takes only datapoints with the first 100 labels
+        # used to construct mini-ssv2
+        num_labels_per_dataset=None
     ):
+        self.num_labels_per_dataset = num_labels_per_dataset
         self.data_paths = data_paths
         self.datasets_weights = datasets_weights
         self.frames_per_clip = frames_per_clip
@@ -125,14 +133,33 @@ class VideoDataset(torch.utils.data.Dataset):
         # Load video paths and labels
         samples, labels = [], []
         self.num_samples_per_dataset = []
+        # ugly code ahead, sorry all! the things i do for 'weighted video sampler'
         for data_path in self.data_paths:
-
             if data_path[-4:] == '.csv':
                 data = pd.read_csv(data_path, header=None, delimiter=" ")
-                samples += list(data.values[:, 0])
-                labels += list(data.values[:, 1])
-                num_samples = len(data)
-                self.num_samples_per_dataset.append(num_samples)
+                if self.num_labels_per_dataset:
+                    assert len(self.data_paths) == 1 or self.dataset_weights is None, 'cant clip labels with weighted sampler & multiple datasets'
+                    tmp_samples = list(data.values[:, 0])
+                    tmp_labels = list(data.values[:, 1])
+                    
+                    unique_labels = set(tmp_labels)
+                    clipped_labels = set(list(unique_labels)[:self.num_labels_per_dataset])
+                    
+                    used_samples = []
+                    used_labels = []
+                    for sample, label in zip(tmp_samples, tmp_labels):
+                        if label in clipped_labels:
+                            used_samples.append(sample)
+                            used_labels.append(label)
+                    samples += used_samples
+                    labels += used_labels
+                    num_samples = min(len(samples), self.num_labels_per_dataset)
+                    self.num_samples_per_dataset.append(num_samples)
+                else:
+                    samples += list(data.values[:, 0])
+                    labels += list(data.values[:, 1])
+                    num_samples = len(data)
+                    self.num_samples_per_dataset.append(num_samples)
 
             elif data_path[-4:] == '.npy':
                 data = np.load(data_path, allow_pickle=True)
@@ -140,8 +167,8 @@ class VideoDataset(torch.utils.data.Dataset):
                 samples += data
                 labels += [0] * len(data)
                 num_samples = len(data)
-                self.num_samples_per_dataset.append(len(data))
-
+                self.num_samples_per_dataset.append(num_samples)
+        
         # [Optional] Weights for each sample to be used by downstream
         # weighted video sampler
         self.sample_weights = None
