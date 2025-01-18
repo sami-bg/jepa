@@ -47,15 +47,15 @@ class LabelwiseColorFilterAugmentation:
     def __init__(self, split="train", alpha: float = 0.3, normalize_fn = None):
         # NOTE This should be consistent across all dataloader processes.
         self.split = split
-        assert self.split in {"train", "test", "val", "eval"}
+        assert self.split in {"train", "test", "val", "eval", "distracted"}
         self.alpha = alpha
         assert 0 <= self.alpha <= 1.
         self.normalize_fn = normalize_fn
 
 
-        if self.split in {"train", "val"}:
+        if self.split in {"train", "val", "eval", "test"}:
             self.start_hue = 0
-        elif self.split in {"test", "eval"}:
+        elif self.split in {"distracted"}:
             self.start_hue = 180
 
         # NOTE This will break with multi-node training (e.g. slurm on more than 1 node) because

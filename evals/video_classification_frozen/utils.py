@@ -260,7 +260,7 @@ class VideoTransform(object):
         self.labelwise_color_filter = video_transforms.create_layerwise_color_filter(
             split=split,
             alpha = (alpha := labelwise_color_filter),  # Default case of alpha=0 means no augmentation
-            normalize_fn=tensor_normalize
+            normalize_fn=None                           # We normalize before it as mean and std are object state
         )
 
 
@@ -296,6 +296,8 @@ class VideoTransform(object):
             buffer = self.erase_transform(buffer)
             buffer = buffer.permute(1, 0, 2, 3)
 
+        # NOTE Do we need to renormalize once we make a color filter? I don't think so...ask Randall?
+        # NOTE If so, we need to pass in self.normalize[0] (mean) and self.normalize[1] (std)
         buffer = self.labelwise_color_filter(buffer, label)
 
         return [buffer]
@@ -323,7 +325,7 @@ class EvalVideoTransform(object):
         self.labelwise_color_filter = video_transforms.create_layerwise_color_filter(
             split=split,
             alpha = (alpha := labelwise_color_filter),  # Default case of alpha=0 means no augmentation
-            normalize_fn=tensor_normalize
+            normalize_fn=None                           # We don't normalize in evals
         )
 
 

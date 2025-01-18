@@ -92,8 +92,8 @@ def main(args_eval, resume_preempt=False):
     train_data_path = [args_data.get('dataset_train')]
     val_data_path = [args_data.get('dataset_val')]
     dataset_type = args_data.get('dataset_type', 'VideoDataset')
-    dataset_num_labels_clip = args_data.get('dataset_num_labels_clip')
     num_classes = args_data.get('num_classes')
+    dataset_num_labels_clip = args_data.get('dataset_num_labels_clip')
     eval_num_segments = args_data.get('num_segments', 1)
     eval_frames_per_clip = args_data.get('frames_per_clip', 16)
     eval_frame_step = args_pretrain.get('frame_step', 4)
@@ -102,7 +102,7 @@ def main(args_eval, resume_preempt=False):
 
     # -- DATA AUGS
     # NOTE SAMI: This is only here because of the distractors
-    cfgs_data_aug = args_eval.get('data_aug')
+    cfgs_data_aug = args_eval.get('data_aug', {})
     labelwise_color_filter = cfgs_data_aug.get('labelwise_color_filter', {})
     labelwise_color_filter_alpha = labelwise_color_filter.get('alpha', 0.)
     # /users/sboughan/ssl/v-jepa-world-models/_src/_datasets/datalists/jepa/train_datalist_ssv2_jepa_egocentric.csv
@@ -190,7 +190,7 @@ def main(args_eval, resume_preempt=False):
         embed_dim=encoder.embed_dim,
         num_heads=encoder.num_heads,
         depth=1,
-        num_classes=num_classes,
+        num_classes=dataset_num_labels_clip or num_classes,
     ).to(device)
 
     train_loader = make_dataloader(
@@ -226,6 +226,23 @@ def main(args_eval, resume_preempt=False):
         training=False,
         labelwise_color_filter_alpha=labelwise_color_filter_alpha,
         split="eval",
+        num_labels_per_dataset=dataset_num_labels_clip)
+    distracted_loader = make_dataloader(
+        dataset_type=dataset_type,
+        root_path=val_data_path,
+        resolution=resolution,
+        frames_per_clip=eval_frames_per_clip,
+        frame_step=eval_frame_step,
+        num_segments=eval_num_segments,
+        eval_duration=eval_duration,
+        num_views_per_segment=eval_num_views_per_segment,
+        allow_segment_overlap=True,
+        batch_size=batch_size,
+        world_size=world_size,
+        rank=rank,
+        training=False,
+        labelwise_color_filter_alpha=labelwise_color_filter_alpha,
+        split="distracted",
         num_labels_per_dataset=dataset_num_labels_clip)
 
     ipe = len(train_loader)
@@ -302,10 +319,25 @@ def main(args_eval, resume_preempt=False):
             wd_scheduler=wd_scheduler,
             data_loader=val_loader,
             use_bfloat16=use_bfloat16)
+        
+        distracted_acc = run_one_epoch(
+            device=device,
+            training=False,
+            num_temporal_views=eval_num_segments,
+            attend_across_segments=attend_across_segments,
+            num_spatial_views=eval_num_views_per_segment,
+            encoder=encoder,
+            classifier=classifier,
+            scaler=scaler,
+            optimizer=optimizer,
+            scheduler=scheduler,
+            wd_scheduler=wd_scheduler,
+            data_loader=distracted_loader,
+            use_bfloat16=use_bfloat16)
 
-        logger.info('[%5d] train: %.3f%% test: %.3f%%' % (epoch + 1, train_acc, val_acc))
+        logger.info('[%5d] train: %.3f%% test: %.3f%% distracted: %.3f%%' % (epoch + 1, train_acc, val_acc, distracted_acc))
         if rank == 0:
-            csv_logger.log(epoch + 1, train_acc, val_acc)
+            csv_logger.log(epoch + 1, train_acc, val_acc, distracted_acc)
         save_checkpoint(epoch + 1)
 
 

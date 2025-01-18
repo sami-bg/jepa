@@ -204,6 +204,7 @@ class VideoDataset(torch.utils.data.Dataset):
         # Parse video into frames & apply data augmentations
         if self.shared_transform is not None:
             buffer = self.shared_transform(buffer)
+
         buffer = split_into_clips(buffer)
         if self.transform is not None:
             buffer = [

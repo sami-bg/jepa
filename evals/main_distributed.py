@@ -24,7 +24,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument(
     '--folder', type=str,
     help='location to save submitit logs',
-    default='/fsx-jepa/massran/submitit/')
+    default='/users/sboughan/ssl/v-jepa-world-models/ccv')
 parser.add_argument(
     '--exclude', type=str,
     help='nodes to exclude from training',
