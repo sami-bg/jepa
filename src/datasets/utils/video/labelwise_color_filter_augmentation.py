@@ -3,9 +3,12 @@ import logging
 import torch
 from toolz import sliding_window
 from functools import cache
-from multiprocessing import Manager
-
+import multiprocessing as mp
+import pandas as pd
+import csv
 import colorsys
+import os 
+import json 
 
 logger = logging.getLogger()
 COLOR = tuple[float, float, float]
@@ -43,51 +46,142 @@ def max_gap_elts_radial(angles: list[HUE]) -> tuple[HUE, HUE]:
 
 
 class LabelwiseColorFilterAugmentation:
+    """
+    An instance-level augmentation class that manages label→color mappings
+    by reading/writing a JSON file at init time. Each instance corresponds
+    to one split (e.g., 'train', 'val', etc.).
+    
+    NOTE: If multiple workers each create an instance, they'll each run __init__,
+    potentially reading/writing the same file. That might be okay if you don't
+    add new labels after the first pass. But if you do, watch out for concurrency.
+    """
 
-    def __init__(self, split="train", alpha: float = 0.3, normalize_fn = None):
-        # NOTE This should be consistent across all dataloader processes.
+    # Where to store JSON for each split
+    SPLIT_TO_JSON_PATH = {
+        'train':      'label_colors_train.json',
+        'val':        'label_colors_val.json',
+        'eval':       'label_colors_eval.json',
+        'test':       'label_colors_test.json',
+        'distracted': 'label_colors_distracted.json',
+    }
+
+    # Starting hue for each split (just an example)
+    SPLIT_TO_HUE_START = {
+        'train': 0,
+        'val': 0,
+        'eval': 0,
+        'test': 0,
+        'distracted': 180,
+    }
+
+    def __init__(self, 
+                 split="train", 
+                 alpha: float = 0.3, 
+                 normalize_fn=None, 
+                 labels: list = None,
+                 debug_file_prefix: str = ''):
+        """
+        :param split: which split, e.g. "train", "val", etc.
+        :param alpha: some parameter for your transform
+        :param normalize_fn: optional normalization function
+        :param labels: a list of labels you want to ensure are assigned colors.
+                       If None, we'll just load from file without adding new ones.
+        """
+        print(f'Initializing LabelwiseColorFilterAugmentation with {split=} {labels=}')
+        assert split in self.SPLIT_TO_JSON_PATH, f"Invalid split={split}."
+        self.debug_file_prefix = debug_file_prefix
         self.split = split
-        assert self.split in {"train", "test", "val", "eval", "distracted"}
         self.alpha = alpha
-        assert 0 <= self.alpha <= 1.
+        assert 0 <= self.alpha <= 1.0
         self.normalize_fn = normalize_fn
 
+        # This object-level dictionary: label -> (R, G, B) in [0,1]
+        self.label_to_color = {}
+        # For convenience, also store label -> hue (in degrees) if you like
+        self.label_to_hue = {}
 
-        if self.split in {"train", "val", "eval", "test"}:
-            self.start_hue = 0
-        elif self.split in {"distracted"}:
-            self.start_hue = 180
-
-        # NOTE This will break with multi-node training (e.g. slurm on more than 1 node) because
-        # we would need to sync across nodes and not just across processes on 1 machine. To fix
-        # this, you would need to get all labels up front and compute the mapping deterministically.
-        # When it comes time to do so, we will likely be training on a large and established dataset
-        # so it won't be an issue. 
-        manager = Manager()
-        self.labels_to_hues = manager.dict()
-        self.labels_to_color = manager.dict()
-
-
-    def assign_to_color(self, label: str) -> COLOR:
-        # NOTE Each time a new label is added, add it maximally-between all the colors that already exist
-        if label in self.labels_to_color:
-            return self.labels_to_color[label]
-        
-        if (num_colors := len(self.labels_to_color)) == 0:
-            hue = self.start_hue
-        elif num_colors == 1:
-            hue = (self.start_hue + 180) % 360
+        # 1. Load from JSON if it exists
+        self.json_path = self.debug_file_prefix + self.SPLIT_TO_JSON_PATH[split]
+        if os.path.exists(self.json_path):
+            self._load_from_json()
         else:
-            exiting_hues = list(self.labels_to_hues.values())
-            hue1, hue2 = max_gap_elts_radial(exiting_hues)
-            print(f'{hue1=} {hue2=}')
-            hue = (hue1 + hue2) / 2
-            hue %= 360
-        
-        # NOTE Hue needs to be between 0 and 1
-        self.labels_to_hues[label] = hue
-        self.labels_to_color[label] = colorsys.hsv_to_rgb(hue / 360, s=1., v=1.)
-        return self.labels_to_color[label]
+            print(f"No existing color JSON found for split='{split}', creating a new one.")
+
+        # 2. If user provided a list of labels, ensure each has a color
+        if labels is not None:
+            self.init_color_assignments_for_labels(labels)
+            # Optionally, write the file back if new colors were added
+            self._save_to_json()
+        print(f'finished init ')
+
+    def _load_from_json(self):
+        """Loads existing {label -> [R,G,B]} mapping from disk, populates self.label_to_color."""
+        with open(self.json_path, 'r') as f:
+            saved_data = json.load(f)  # label -> [r_float, g_float, b_float]
+        for lbl, rgb_list in saved_data.items():
+            self.label_to_color[lbl] = tuple(rgb_list)
+            # Recompute hue if needed
+            (r, g, b) = rgb_list
+            hsv = colorsys.rgb_to_hsv(r, g, b)  # (h in [0,1], s, v)
+            hue_deg = hsv[0] * 360.0
+            self.label_to_hue[lbl] = hue_deg
+
+    def _save_to_json(self):
+        """Writes {label -> [R,G,B]} to disk."""
+        with open(self.json_path, 'w') as f:
+            # Convert (r, g, b) tuples to lists
+            data_out = {lbl: list(rgb) for lbl, rgb in self.label_to_color.items()}
+            json.dump(data_out, f)
+
+    def init_color_assignments_for_labels(self, labels: list):
+        """
+        Ensures each label in 'labels' has a color assigned. If any are missing,
+        we generate a new hue placement, store in self.label_to_color/hue,
+        then call _save_to_json() at the end.
+        """
+        changed = False  # track if we add new colors
+
+        start_hue = self.SPLIT_TO_HUE_START[self.split]
+        if self.split == "distracted":
+            # breakpoint()
+            pass
+        for label in labels:
+            if label in self.label_to_color:
+                continue  # already assigned
+
+            changed = True
+
+            num_colors = len(self.label_to_color)
+            if num_colors == 0:
+                hue = start_hue
+            elif num_colors == 1:
+                # place second color on opposite side of color wheel
+                hue = (start_hue + 180) % 360
+            else:
+                # find biggest gap
+                existing_hues = list(self.label_to_hue.values())
+                hue1, hue2 = max_gap_elts_radial(existing_hues)
+                hue = (hue1 + hue2) / 2
+                hue %= 360
+
+            hsv_h = hue / 360.0
+            (r, g, b) = colorsys.hsv_to_rgb(hsv_h, 1.0, 1.0)
+            self.label_to_color[label] = (r, g, b)
+            self.label_to_hue[label] = hue
+
+        if changed:
+            self._save_to_json()
+
+    def assign_to_color(self, label: str):
+        """
+        Returns the (R,G,B) in [0,1] for a given label. If the label wasn't
+        yet assigned, you can decide whether to auto-assign or raise an error.
+        """
+        if label not in self.label_to_color:
+            # Auto-assign if you want:
+            self.init_color_assignments_for_labels([label])
+        return self.label_to_color[label]
+
 
     def _augment_frame_with_color(self, frame_CHW: torch.Tensor, color: torch.Tensor) -> torch.Tensor:
 
@@ -136,6 +230,12 @@ def _plot(x: torch.Tensor):
     plt.axis('off')
     plt.imshow(x)
     plt.savefig('test.png')
+
+
+if __name__ == "__main__":
+    train = LabelwiseColorFilterAugmentation('train', labels=list(range(20)), debug_file_prefix='debug_')
+    distractor = LabelwiseColorFilterAugmentation('distracted', labels=list(range(20)), debug_file_prefix='debug_')
+    eval = LabelwiseColorFilterAugmentation('eval', labels=list(range(20)), debug_file_prefix='debug_')
 
 # from matplotlib.patches import Circle
 # from multiprocessing import Pool

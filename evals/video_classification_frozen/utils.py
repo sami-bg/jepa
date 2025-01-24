@@ -173,8 +173,8 @@ def make_transforms(
                (0.229, 0.224, 0.225)),
     labelwise_color_filter=0.,
     split="train",
+    labels=[]
 ):
-
     if not training and num_views_per_clip > 1:
         print('Making EvalVideoTransform, multi-view')
         _frames_augmentation = EvalVideoTransform(
@@ -182,7 +182,8 @@ def make_transforms(
             short_side_size=crop_size,
             normalize=normalize,
             labelwise_color_filter=labelwise_color_filter,
-            split=split
+            split=split,
+            labels=labels
         )
 
     else:
@@ -197,7 +198,8 @@ def make_transforms(
             crop_size=crop_size,
             normalize=normalize,
             labelwise_color_filter=labelwise_color_filter,
-            split=split
+            split=split,
+            labels=labels
         )
 
     return _frames_augmentation
@@ -219,6 +221,7 @@ class VideoTransform(object):
                    (0.229, 0.224, 0.225)),
         labelwise_color_filter=0.,
         split="train",
+        labels: list=[]
     ):
 
         self.training = training
@@ -260,7 +263,8 @@ class VideoTransform(object):
         self.labelwise_color_filter = video_transforms.create_layerwise_color_filter(
             split=split,
             alpha = (alpha := labelwise_color_filter),  # Default case of alpha=0 means no augmentation
-            normalize_fn=None                           # We normalize before it as mean and std are object state
+            normalize_fn=None,                           # We normalize before it as mean and std are object state
+            labels=labels
         )
 
 
@@ -313,6 +317,7 @@ class EvalVideoTransform(object):
                    (0.229, 0.224, 0.225)),
         labelwise_color_filter=0.,
         split="train",
+        labels=[]
     ):
         self.views_per_clip = num_views_per_clip
         self.short_side_size = short_side_size
@@ -325,7 +330,8 @@ class EvalVideoTransform(object):
         self.labelwise_color_filter = video_transforms.create_layerwise_color_filter(
             split=split,
             alpha = (alpha := labelwise_color_filter),  # Default case of alpha=0 means no augmentation
-            normalize_fn=None                           # We don't normalize in evals
+            normalize_fn=None,                           # We don't normalize in evals
+            labels=labels
         )
 
 

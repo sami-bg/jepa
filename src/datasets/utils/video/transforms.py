@@ -46,9 +46,10 @@ def _pil_interp(method):
         return Image.BILINEAR
 
 
-def create_layerwise_color_filter(split: str = "train", alpha: float = 0., normalize_fn = None):
-    return LabelwiseColorFilterAugmentation(split, alpha=alpha, normalize_fn=normalize_fn)
-
+def create_layerwise_color_filter(split: str = "train", alpha: float = 0., normalize_fn = None, labels: list=[]):
+    aug = LabelwiseColorFilterAugmentation(split=split, alpha=alpha, normalize_fn=normalize_fn, labels=labels)
+    # aug.init_color_assignments_for_labels(labels)
+    return aug
 
 def random_short_side_scale_jitter(
     images, min_size, max_size, boxes=None, inverse_uniform_sampling=False

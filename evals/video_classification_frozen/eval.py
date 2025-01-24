@@ -17,6 +17,7 @@ try:
 except Exception:
     pass
 
+import wandb
 import logging
 import pprint
 
@@ -45,7 +46,8 @@ from src.utils.logging import (
     AverageMeter,
     CSVLogger
 )
-
+from src.datasets.video_dataset import clip_labels
+import yaml
 from evals.video_classification_frozen.utils import (
     make_transforms,
     ClipAggregation,
@@ -93,7 +95,7 @@ def main(args_eval, resume_preempt=False):
     val_data_path = [args_data.get('dataset_val')]
     dataset_type = args_data.get('dataset_type', 'VideoDataset')
     num_classes = args_data.get('num_classes')
-    dataset_num_labels_clip = args_data.get('dataset_num_labels_clip')
+    dataset_num_labels_clip = args_data.get('dataset_num_labels_clip', -1)
     eval_num_segments = args_data.get('num_segments', 1)
     eval_frames_per_clip = args_data.get('frames_per_clip', 16)
     eval_frame_step = args_pretrain.get('frame_step', 4)
@@ -105,6 +107,7 @@ def main(args_eval, resume_preempt=False):
     cfgs_data_aug = args_eval.get('data_aug', {})
     labelwise_color_filter = cfgs_data_aug.get('labelwise_color_filter', {})
     labelwise_color_filter_alpha = labelwise_color_filter.get('alpha', 0.)
+
     # /users/sboughan/ssl/v-jepa-world-models/_src/_datasets/datalists/jepa/train_datalist_ssv2_jepa_egocentric.csv
     # -- OPTIMIZATION
     args_opt = args_eval.get('optimization')
@@ -190,8 +193,13 @@ def main(args_eval, resume_preempt=False):
         embed_dim=encoder.embed_dim,
         num_heads=encoder.num_heads,
         depth=1,
-        num_classes=dataset_num_labels_clip or num_classes,
+        num_classes=(dataset_num_labels_clip if dataset_num_labels_clip > 0 else 0) or num_classes,
     ).to(device)
+
+    labels_kept = clip_labels(data_paths=[
+        *train_data_path,
+    ], num_labels=((dataset_num_labels_clip if dataset_num_labels_clip > 0 else 0) or num_classes)
+    )
 
     train_loader = make_dataloader(
         dataset_type=dataset_type,
@@ -209,7 +217,8 @@ def main(args_eval, resume_preempt=False):
         training=True,
         labelwise_color_filter_alpha=labelwise_color_filter_alpha,
         split="train",
-        num_labels_per_dataset=dataset_num_labels_clip)
+        num_labels_per_dataset=dataset_num_labels_clip,
+        labels=labels_kept)
     val_loader = make_dataloader(
         dataset_type=dataset_type,
         root_path=val_data_path,
@@ -226,7 +235,8 @@ def main(args_eval, resume_preempt=False):
         training=False,
         labelwise_color_filter_alpha=labelwise_color_filter_alpha,
         split="eval",
-        num_labels_per_dataset=dataset_num_labels_clip)
+        num_labels_per_dataset=dataset_num_labels_clip,
+        labels=labels_kept)
     distracted_loader = make_dataloader(
         dataset_type=dataset_type,
         root_path=val_data_path,
@@ -243,7 +253,8 @@ def main(args_eval, resume_preempt=False):
         training=False,
         labelwise_color_filter_alpha=labelwise_color_filter_alpha,
         split="distracted",
-        num_labels_per_dataset=dataset_num_labels_clip)
+        num_labels_per_dataset=dataset_num_labels_clip,
+        labels=labels_kept)
 
     ipe = len(train_loader)
     logger.info(f'Dataloader created... iterations per epoch: {ipe}')
@@ -303,7 +314,10 @@ def main(args_eval, resume_preempt=False):
             scheduler=scheduler,
             wd_scheduler=wd_scheduler,
             data_loader=train_loader,
-            use_bfloat16=use_bfloat16)
+            use_bfloat16=use_bfloat16,
+            epoch=epoch,
+            mode='train',
+            ipe=ipe)
 
         val_acc = run_one_epoch(
             device=device,
@@ -318,7 +332,10 @@ def main(args_eval, resume_preempt=False):
             scheduler=scheduler,
             wd_scheduler=wd_scheduler,
             data_loader=val_loader,
-            use_bfloat16=use_bfloat16)
+            use_bfloat16=use_bfloat16,
+            epoch=epoch,
+            mode='validation',
+            ipe=ipe)
         
         distracted_acc = run_one_epoch(
             device=device,
@@ -333,7 +350,10 @@ def main(args_eval, resume_preempt=False):
             scheduler=scheduler,
             wd_scheduler=wd_scheduler,
             data_loader=distracted_loader,
-            use_bfloat16=use_bfloat16)
+            use_bfloat16=use_bfloat16,
+            epoch=epoch,
+            mode='distractors',
+            ipe=ipe)
 
         logger.info('[%5d] train: %.3f%% test: %.3f%% distracted: %.3f%%' % (epoch + 1, train_acc, val_acc, distracted_acc))
         if rank == 0:
@@ -355,7 +375,12 @@ def run_one_epoch(
     num_spatial_views,
     num_temporal_views,
     attend_across_segments,
+    epoch,
+    mode,
+    ipe
 ):
+    if not hasattr(run_one_epoch, f'{mode}_steps'):
+        setattr(run_one_epoch, f'{mode}_steps', 0)
 
     classifier.train(mode=training)
     criterion = torch.nn.CrossEntropyLoss()
@@ -422,6 +447,18 @@ def run_one_epoch(
             logger.info('[%5d] %.3f%% (loss: %.3f) [mem: %.2e]'
                         % (itr, top1_meter.avg, loss,
                            torch.cuda.max_memory_allocated() / 1024.**2))
+            
+            # NOTE man life would be easier if this was a class limao
+            current_step = getattr(run_one_epoch, f'{mode}_steps')
+            setattr(run_one_epoch, f'{mode}_steps', current_step + 1)
+
+            wandb.log({
+                f'{mode}/itr': itr,
+                f'{mode}/epoch': epoch,
+                f'{mode}/global_step': getattr(run_one_epoch, f'{mode}_steps'),
+                f'{mode}/loss': loss,
+                f'{mode}/top1_meter_avg': top1_meter.avg
+            })
 
     return top1_meter.avg
 
@@ -503,7 +540,8 @@ def make_dataloader(
     subset_file=None,
     labelwise_color_filter_alpha=0.,
     split="eval",
-    num_labels_per_dataset=None
+    num_labels_per_dataset=-1,
+    labels=[]
 ):
     # Make Video Transforms
     transform = make_transforms(
@@ -517,7 +555,8 @@ def make_dataloader(
         motion_shift=False,
         crop_size=resolution,
         labelwise_color_filter=labelwise_color_filter_alpha,
-        split=split
+        split=split,
+        labels=labels
     )
 
     data_loader, _ = init_data(
@@ -612,3 +651,9 @@ def init_opt(
         T_max=int(num_epochs*iterations_per_epoch))
     scaler = torch.cuda.amp.GradScaler() if use_bfloat16 else None
     return optimizer, scaler, scheduler, wd_scheduler
+
+if __name__ == '__main__':
+    config_path = '/users/sboughan/ssl/v-jepa-world-models/_src/external/jepa/configs/evals/vitb16_ssv2mini_distracted_16x2x3.yaml'
+    with open(config_path, 'r') as f:
+        args_eval = yaml.safe_load(f)
+    main(args_eval)

@@ -23,6 +23,7 @@ from src.datasets.utils.weighted_sampler import DistributedWeightedSampler
 _GLOBAL_SEED = 0
 logger = getLogger()
 
+LABELS_INCLUDED = []
 
 def make_videodataset(
     data_paths,
@@ -91,6 +92,26 @@ def make_videodataset(
     return dataset, data_loader, dist_sampler
 
 
+def clip_labels(data_paths: list[str], num_labels: int) -> list:
+    global LABELS_INCLUDED
+    print(f'Clipping labels {num_labels=} {data_paths=}')
+    if LABELS_INCLUDED:
+        print(f'Labels already clipped to {LABELS_INCLUDED}, skipping clip_labels')
+        return LABELS_INCLUDED
+    for data_path in data_paths:
+        if data_path[-4:] == '.csv':
+            data = pd.read_csv(data_path, header=None, delimiter=" ")
+            unique_labels = sorted(set(list(data.values[:, 1])))
+            if num_labels == -1:
+                num_labels_datapath = len(unique_labels)
+            else:
+                num_labels_datapath = num_labels
+
+            LABELS_INCLUDED.extend(unique_labels[:num_labels_datapath])
+
+    print(f'Clipped labels to {LABELS_INCLUDED=}')
+    return LABELS_INCLUDED
+
 class VideoDataset(torch.utils.data.Dataset):
     """ Video classification dataset. """
 
@@ -113,6 +134,7 @@ class VideoDataset(torch.utils.data.Dataset):
         # used to construct mini-ssv2
         num_labels_per_dataset=None
     ):
+        global LABELS_INCLUDED
         self.num_labels_per_dataset = num_labels_per_dataset
         self.data_paths = data_paths
         self.datasets_weights = datasets_weights
@@ -133,6 +155,7 @@ class VideoDataset(torch.utils.data.Dataset):
         # Load video paths and labels
         samples, labels = [], []
         self.num_samples_per_dataset = []
+
         # ugly code ahead, sorry all! the things i do for 'weighted video sampler'
         for data_path in self.data_paths:
             if data_path[-4:] == '.csv':
@@ -141,16 +164,14 @@ class VideoDataset(torch.utils.data.Dataset):
                     assert len(self.data_paths) == 1 or self.dataset_weights is None, 'cant clip labels with weighted sampler & multiple datasets'
                     tmp_samples = list(data.values[:, 0])
                     tmp_labels = list(data.values[:, 1])
-                    
-                    unique_labels = set(tmp_labels)
-                    clipped_labels = set(list(unique_labels)[:self.num_labels_per_dataset])
-                    
+
                     used_samples = []
                     used_labels = []
                     for sample, label in zip(tmp_samples, tmp_labels):
-                        if label in clipped_labels:
+                        if label in LABELS_INCLUDED:
                             used_samples.append(sample)
                             used_labels.append(label)
+
                     samples += used_samples
                     labels += used_labels
                     num_samples = min(len(samples), self.num_labels_per_dataset)
@@ -169,6 +190,8 @@ class VideoDataset(torch.utils.data.Dataset):
                 num_samples = len(data)
                 self.num_samples_per_dataset.append(num_samples)
         
+        print(f'{os.getpid()} - LABELS: {sorted(list(set(labels)))}')
+
         # [Optional] Weights for each sample to be used by downstream
         # weighted video sampler
         self.sample_weights = None
