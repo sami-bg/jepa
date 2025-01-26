@@ -11,6 +11,8 @@ import sys
 import torch
 
 import src.models.vision_transformer as vit
+
+import src.models.predictors as vit_pred
 from src.utils.schedulers import (
     WarmupCosineSchedule,
     CosineWDSchedule)
@@ -73,17 +75,25 @@ def init_model(
     pred_depth=6,
     pred_emb_dim=384
 ) -> tuple[torch.nn.Module, torch.nn.Module, torch.nn.Module]:
-    encoder = vit.__dict__[model_name](
-        img_size=[crop_size],
+    encoder: vit.VisionTransformer = vit.__dict__[model_name](
+        img_size=crop_size,
         patch_size=patch_size)
-    predictor = vit.__dict__['vit_predictor'](
-        num_patches=encoder.patch_embed.num_patches,
+    predictor = vit_pred.__dict__['vit_predictor_image'](
+        num_patches=encoder.num_patches,
         embed_dim=encoder.embed_dim,
         predictor_embed_dim=pred_emb_dim,
         depth=pred_depth,
         num_heads=encoder.num_heads)
+    
+    # predictor = vit_pred.__dict__['vit_predictor_image'](
+    #     img_size=crop_size,
+    #     patch_size=patch_size,
+    #     embed_dim=encoder.embed_dim,
+    #     predictor_embed_dim=pred_emb_dim,
+    #     depth=pred_depth,
+    #     num_heads=encoder.num_heads)
     expander = vit.__dict__['expander'](
-        embed_dim=encoder.embed_dim,
+        input_dim=encoder.embed_dim,
         norm_type='bn'
     )
 

@@ -42,7 +42,12 @@ meta:
   read_checkpoint: null
   use_bfloat16: true
 optimization:
-  enable_vicreg: false
+  enable_vicreg: true
+  vicreg_weight: 0.001
+  sim_weight: 25.0
+  std_weight: 25.0
+  cov_weight: 1.0
+  vicreg_epsilon: 1e-4
   ema:
   - 0.996
   - 1.0
@@ -54,3 +59,4 @@ optimization:
   ipe_scale: 1.0
   weight_decay: 0.04
   final_weight_decay: 0.4
+  

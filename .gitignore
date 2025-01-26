@@ -4,3 +4,7 @@ zdata/
 .venv/
 venv/
 .env
+slurm_logs/
+train.sh
+eval.sh
+

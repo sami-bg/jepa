@@ -349,7 +349,7 @@ def main(args, resume_preempt=False):
                 def forward_predictor():
                     zp = predictor(zc, masks_enc, masks_pred)
                     return zp
-                
+
                 def forward_expander(zx):
                     # expand on patch-level dimension mean
                     zx_expanded = expander(zx.mean(dim=1))

@@ -18,6 +18,40 @@ from src.utils.tensors import trunc_normal_
 from src.masks.utils import apply_masks
 
 
+class Expander(nn.Module):
+    """
+    VICReg-style projector
+    Architecture: Linear → BN → ReLU (repeated num_layers-1 times) → Linear (final)
+    """
+    def __init__(
+        self,
+        input_dim: int,
+        expander_dim: int = 8192,
+        num_layers: int = 3,
+        norm_type: str = 'bn'    
+    ):
+        super().__init__()
+        
+        layers = []
+        
+        # Hidden layers: Linear → BN/LN → ReLU
+        for _ in range(num_layers - 1):
+            layers.extend([
+                nn.Linear(input_dim, expander_dim, bias=(False if norm_type == 'bn' else True)),
+                nn.BatchNorm1d(expander_dim) if norm_type == 'bn' 
+                    else nn.LayerNorm(expander_dim),
+                nn.ReLU(inplace=True)
+            ])
+            input_dim = expander_dim  # Subsequent layers use expander_dim
+        
+        # Final layer: Linear only (no BN/ReLU, bias=False)
+        layers.append(nn.Linear(expander_dim, expander_dim, bias=False))
+        
+        self.net = nn.Sequential(*layers)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.net(x)
+
 class VisionTransformer(nn.Module):
     """ Vision Transformer """
     def __init__(
@@ -358,3 +392,7 @@ def vit_gigantic(patch_size=None, embed_dim=None, depth=None, **kwargs):
     return VisionTransformer(
         patch_size=patch_size, embed_dim=embed_dim, depth=depth, num_heads=16, mlp_ratio=64/13,
         qkv_bias=True, norm_layer=partial(nn.LayerNorm, eps=1e-6), **kwargs)
+
+def expander(input_dim, **kwargs):
+    model = Expander(input_dim=input_dim, **kwargs)
+    return model

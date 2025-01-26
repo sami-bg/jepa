@@ -14,7 +14,7 @@ import yaml
 import torch
 
 import src.models.vision_transformer as video_vit
-import src.models.predictor as vit_pred
+import src.models.predictors as vit_pred
 from src.models.utils.multimask import MultiMaskWrapper, PredictorMultiMaskWrapper
 from src.utils.schedulers import (
     WarmupCosineSchedule,
@@ -107,7 +107,7 @@ def init_video_model(
         use_sdpa=use_sdpa,
     )
     encoder = MultiMaskWrapper(encoder)
-    predictor = vit_pred.__dict__['vit_predictor'](
+    predictor = vit_pred.__dict__['vit_predictor_video'](
         img_size=crop_size,
         use_mask_tokens=use_mask_tokens,
         patch_size=patch_size,
