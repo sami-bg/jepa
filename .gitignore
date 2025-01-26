@@ -1,2 +1,6 @@
 .*.swp
 *.pyc
+zdata/
+.venv/
+venv/
+.env

@@ -1,0 +1,33 @@
+nodes: 1
+tasks_per_node: 1
+tag: in1k-16f
+eval_name: image_classification_frozen
+resume_checkpoint: false
+data:
+  root_path: /users/sboughan/scratch/ssl/ijepa/zdata
+  image_folder: imagenet-mini/
+  num_classes: 1000
+  resolution: 224
+  dataset_name: ImageNet
+optimization:
+  num_epochs: 20
+  batch_size: 16
+  weight_decay: 0.001
+  lr: 0.001
+  start_lr: 0.001
+  final_lr: 0.0
+  warmup: 0.
+  use_bfloat16: true
+pretrain:
+  model_name: vit_tiny
+  checkpoint_key: target_encoder
+  clip_duration: null
+  frames_per_clip: 1
+  uniform_power: true
+  use_sdpa: true
+  use_silu: false
+  tight_silu: false
+  patch_size: 16
+  folder: /users/sboughan/scratch/ssl/ijepa/logs/vitt16.224-bs.24-ep.300/
+  checkpoint: jepa-latest.pth.tar  # name of pretrained model file inside folder
+  write_tag: jepa
